@@ -20,301 +20,95 @@ Each verification produces a permanent on-chain record containing the verdict, c
 
 ## ✨ Why TruthLock?
 
-The internet contains enormous amounts of information—but determining **what is actually true** remains difficult.
+The internet contains enormous amounts of information — but determining **what is actually true** remains difficult. Traditional fact-checking is centralized, hard to audit, dependent on a single authority, and not permanently verifiable.
 
-Traditional fact-checking is often:
-
-* Centralized
-* Difficult to audit
-* Dependent on a single authority
-* Not permanently verifiable
-* Vulnerable to changing or disappearing sources
-
-TruthLock approaches the problem differently.
-
-### The core idea
+TruthLock approaches the problem differently:
 
 ```text
-          USER CLAIM
-               │
-               ▼
-      ┌─────────────────┐
-      │  Evidence Input │
-      │ URL(s) optional │
-      └────────┬────────┘
-               │
-               ▼
-      ┌─────────────────┐
-      │ Live Web Fetch  │
-      │ + Source Check  │
-      └────────┬────────┘
-               │
-               ▼
-      ┌─────────────────┐
-      │  LLM Reasoning  │
-      │ Cross-reference │
-      └────────┬────────┘
-               │
-               ▼
-      ┌─────────────────┐
-      │    Validator    │
-      │    Consensus    │
-      └────────┬────────┘
-               │
-               ▼
-      ┌─────────────────┐
-      │ On-Chain Record │
-      └────────┬────────┘
-               │
-               ▼
-       TRUE / FALSE /
-     MISLEADING / UNVERIFIABLE
+Claim + URL(s) → Live Web Fetch → LLM Cross-Reference → Validator Consensus → Permanent On-Chain Verdict
 ```
 
-The result isn't just an AI response.
-
-**It becomes an on-chain fact-check record that other applications can independently read.**
+The result isn't just an AI response. **It becomes an on-chain fact-check record that other applications can independently read.**
 
 ---
 
 # 🚀 Features
 
-### 🔎 Intelligent Fact Checking
-
-Submit any claim and let the protocol evaluate it using live evidence and LLM reasoning.
-
-### 🌐 Live Web Evidence
-
-When a source URL is provided, the Intelligent Contract can fetch the source directly and analyze its contents.
-
-### 🧠 Multi-Source Reasoning
-
-TruthLock can extract additional corroborating sources and compare the available evidence.
-
-### ⚖️ Optimistic Democracy Consensus
-
-Validators independently re-run the verification pipeline and reach consensus using GenLayer's `gl.eq_principle.prompt_comparative`.
-
-### ⛓️ Permanent On-Chain Verdicts
-
-Every verification stores:
-
-* Verdict
-* Confidence score
-* Explanation
-* Claim
-* Source information
-* Fetch status
-* Timestamp
-* Submitter
-* Verification mode
-
-### 📊 Network Analytics
-
-Explore aggregate statistics across verified claims, including:
-
-* Verdict distribution
-* Verification modes
-* Recent checks
-* Trending claims
-* Source reliability
-* Live verdict activity
-
-### 🕐 Verification Timeline
-
-Follow the complete verification lifecycle from claim submission to final on-chain commitment.
-
-### 🧑‍💻 Developer Integration
-
-Other decentralized applications can read TruthLock verdicts directly from the Intelligent Contract.
-
-### 🏛️ Governance Integration
-
-The repository includes a `GovernanceDAO` reference implementation capable of reading TruthLock verdicts cross-contract.
+- **🔎 Intelligent Fact Checking** — submit any claim and let the protocol evaluate it using live evidence and LLM reasoning
+- **🌐 Live Web Evidence** — the contract fetches provided source URLs directly and analyzes their contents
+- **🧠 Multi-Source Reasoning** — extracts additional corroborating sources and compares the available evidence
+- **⚖️ Optimistic Democracy Consensus** — validators independently re-run the verification pipeline via `gl.eq_principle.prompt_comparative`
+- **⛓️ Permanent On-Chain Verdicts** — verdict, confidence, explanation, sources, fetch status, timestamp, submitter, and verification mode
+- **📊 Network Analytics** — verdict distribution, trending claims, source reliability, live verdict feed
+- **🕐 Verification Timeline** — the complete lifecycle from submission to on-chain commitment
+- **🧑‍💻 Developer Integration** — other dApps read TruthLock verdicts directly from the contract
+- **🏛️ Governance Integration** — includes a `GovernanceDAO` reference implementation reading verdicts cross-contract
 
 ---
 
 # 🖥️ Application
 
-## 1. Home — Claim Submission
+## Home — Claim Submission
 
-![Home Page Screenshot](./Screenshot%20from%202026-09-06%2016-23-59.png)
+Enter a claim, provide one or more evidence URLs, pick a category, and start the verification. Includes the Claim of the Day and recent fact checks.
 
-The submission portal allows users to:
+![Home hero](Images/home-hero.png)
 
-* Enter a claim
-* Provide one or more evidence URLs
-* Automatically select a claim category
-* Specify a category manually
-* Start the verification process
-* View the Claim of the Day
-* Explore recent fact checks
+![Claim submission](Images/home-form.png)
 
----
+![Home Page Screenshot](Images/home.png)
 
-## 2. Verification Result
+## Verification Result
 
-![Result Main Screen](./Screenshot%20from%202026-09-06%2016-26-46.png)
+The primary verdict with confidence, evidence agreement, source verification status, and the verification explanation.
 
-The result page provides the primary verdict and supporting evidence.
+![Result Main Screen](Images/result-verdict.png)
 
-Example:
+## Verification Analysis
 
-```text
-VERDICT
-UNVERIFIABLE
+Exposes the reasoning behind the verdict: evidence divergence, validator agreement, source quality tiers, and claim scoring.
 
-Confidence
-18%
+![Result Analysis Screen](Images/result-analysis.png)
 
-Evidence
-Insufficient corroboration
-```
+## Verification Timeline
 
-It also displays:
+A chronological view of the verification lifecycle — from claim submission to on-chain commitment.
 
-* Source verification status
-* Evidence agreement
-* Corroborating sources
-* Verification explanation
+![Result Timeline Screen](Images/result-timeline.png)
 
----
+## On-Chain Proof
 
-## 3. Verification Analysis
+Transaction ID, timestamp, contract address, submitter wallet, and the immutable verdict record — with export, share, embed, and challenge actions.
 
-![Result Analysis Screen](./Screenshot%20from%202026-09-06%2016-27-10.png)
-
-The analysis view exposes the reasoning behind the verdict.
-
-It includes:
-
-* Evidence divergence
-* Validator agreement
-* Optimistic Democracy results
-* Source quality tiers
-* Claim scoring
-* Evidence consistency
-
-This makes the verification process more transparent than a simple AI-generated answer.
-
----
-
-## 4. Verification Timeline
-
-![Result Timeline Screen](./Screenshot%20from%202026-09-06%2016-27-29.png)
-
-The timeline provides a chronological view of the verification lifecycle.
-
-```text
-Claim Submitted
-      ↓
-Primary Source Retrieved
-      ↓
-Evidence Extracted
-      ↓
-Corroborating Sources Retrieved
-      ↓
-LLM Reasoning
-      ↓
-Validator Verification
-      ↓
-Consensus
-      ↓
-On-Chain Commitment
-```
-
----
-
-## 5. On-Chain Proof
-
-![On-Chain Proof Screen](./Screenshot%20from%202026-09-06%2016-27-41.png)
-
-Once verification is complete, TruthLock exposes the resulting on-chain proof.
-
-The interface includes:
-
-* Transaction ID
-* Timestamp
-* Contract address
-* Submitter wallet
-* Verification ID
-* Immutable verdict record
-
-Users can also:
-
-* Export a report card
-* Share the result
-* Embed a verdict
-* Challenge a verdict *(roadmap)*
+![On-Chain Proof Screen](Images/result-proof.png)
 
 ---
 
 # 📊 Network Analytics
 
-## Stats Overview
+A network-level view of fact-checking activity: total claims verified, verdict distribution, verification modes, trending claims, and source reliability.
 
-![Stats Overview](./Screenshot%20from%202026-09-06%2016-24-29.png)
+![Stats Overview](Images/stats-overview.png)
 
-TruthLock provides a network-level view of fact-checking activity.
-
-Metrics include:
-
-* Total claims verified
-* TRUE / FALSE / MISLEADING / UNVERIFIABLE distribution
-* Source-verified checks
-* Knowledge-based checks
-* Latest verification timestamp
-
-## Live Feeds
-
-![Stats Feeds & Analytics](./Screenshot%20from%202026-09-06%2016-24-59.png)
-
-The analytics dashboard provides:
-
-* Trending claims
-* Verdict activity
-* Source reliability information
-* Recent verification events
-* Verification-mode statistics
+![Stats Feeds & Analytics](Images/stats-feeds.png)
 
 ---
 
 # 🗂️ Fact-Check History
 
-![History Screen](./Screenshot%20from%202026-09-06%2016-25-19.png)
+A searchable history of verified claims with verdict/category filters and a **14-day misinformation heat map**.
 
-TruthLock maintains a searchable history of verified claims.
-
-Users can:
-
-* Search claims
-* Filter by category
-* Filter by verdict
-* Explore historical checks
-* Analyze misinformation patterns
-
-The dashboard also includes a **14-day misinformation heat map** showing verification frequency and verdict trends.
+![History Screen](Images/history.png)
 
 ---
 
 # 🧑‍💻 Developer Hub
 
-![Developers Screen 1](./Screenshot%20from%202026-09-06%2016-25-37.png)
+TruthLock is designed as **fact-checking infrastructure**, not only a consumer application. The Developer Hub provides Python, Solidity, and cURL examples, contract-to-contract integration patterns, and an interactive API playground.
 
-![Developers Screen 2](./Screenshot%20from%202026-09-06%2016-25-51.png)
+![Developers Screen 1](Images/developers-1.png)
 
-TruthLock is designed to function as **fact-checking infrastructure**, not only as a consumer application.
-
-Developers can integrate TruthLock into their own applications and read verification results directly from the contract.
-
-The Developer Hub provides examples for:
-
-* Python
-* Solidity
-* cURL
-* Contract-to-contract integrations
-
-It also includes an interactive API playground for querying verification records.
+![Developers Screen 2](Images/developers-2.png)
 
 ---
 
@@ -322,69 +116,25 @@ It also includes an interactive API playground for querying verification records
 
 TruthLock supports two verification modes.
 
-## 1. `SOURCE_VERIFIED`
+### 1. `SOURCE_VERIFIED`
 
-The user provides one or more HTTPS source URLs.
+The user provides one or more HTTPS source URLs:
 
-### Step 1 — Fetch evidence
+1. **Fetch evidence** — the contract retrieves source content with `gl.nondet.web.render(url, mode="text")`
+2. **Extract corroborating sources** — the LLM identifies up to two additional corroborating URLs
+3. **Cross-reference evidence** — sources are analyzed together for agreement, contradictions, source quality, and evidence strength
+4. **Validator consensus** — validators independently re-run the pipeline; consensus via GenLayer's Optimistic Democracy (`gl.eq_principle.prompt_comparative`)
+5. **Permanent storage** — the final result is committed on-chain
 
-The Intelligent Contract retrieves source content using:
+### 2. `KNOWLEDGE_BASED`
 
-```python
-gl.nondet.web.render(url, mode="text")
-```
-
-### Step 2 — Extract corroborating sources
-
-The LLM analyzes the fetched content and can identify up to two additional corroborating URLs.
-
-### Step 3 — Cross-reference evidence
-
-The available sources are analyzed together to determine:
-
-* Agreement
-* Contradictions
-* Source quality
-* Evidence strength
-* Claim consistency
-
-### Step 4 — Validator consensus
-
-Validators independently re-run the verification pipeline.
-
-Consensus is reached using GenLayer's Optimistic Democracy mechanism:
-
-```python
-gl.eq_principle.prompt_comparative(...)
-```
-
-### Step 5 — Permanent storage
-
-The final result is committed on-chain.
-
----
-
-# 🧠 2. `KNOWLEDGE_BASED`
-
-When no source URL is supplied—or when all source fetches fail—the system falls back to LLM knowledge.
-
-The protocol explicitly records that **no live evidence was successfully verified**.
-
-For this mode:
-
-```text
-Maximum confidence = 85%
-```
-
-This prevents knowledge-only verification from appearing as strong as live-source verification.
+When no source URL is supplied — or all fetches fail — the system falls back to LLM knowledge and explicitly records that **no live evidence was verified**. Maximum confidence is capped at **85%** so knowledge-only verification never appears as strong as live-source verification.
 
 ---
 
 # ⛓️ On-Chain Data Model
 
-Each fact check produces a persistent `FactCheckRecord`.
-
-Conceptually:
+Each fact check produces a persistent `FactCheckRecord`:
 
 ```text
 FactCheckRecord
@@ -400,14 +150,12 @@ FactCheckRecord
 └── Submitter
 ```
 
-### Supported verdicts
-
-| Verdict          | Meaning                                               |
-| ---------------- | ----------------------------------------------------- |
-| 🟢 `TRUE`        | Available evidence supports the claim                 |
-| 🔴 `FALSE`       | Available evidence contradicts the claim              |
-| 🟡 `MISLEADING`  | Claim contains materially misleading context          |
-| ⚪ `UNVERIFIABLE` | Available evidence is insufficient to establish truth |
+| Verdict | Meaning | Color |
+| --- | --- | --- |
+| 🟢 `TRUE` | Available evidence supports the claim | `#00E5A0` |
+| 🔴 `FALSE` | Available evidence contradicts the claim | `#FF4D4D` |
+| 🟡 `MISLEADING` | Claim contains materially misleading context | `#FFB800` |
+| ⚪ `UNVERIFIABLE` | Evidence is insufficient to establish truth | `#6B7280` |
 
 ---
 
@@ -415,41 +163,25 @@ FactCheckRecord
 
 ```text
 ┌──────────────────────────────────────────────┐
-│                  React SPA                   │
-│            Vite + React 19 + TS              │
+│              React SPA                       │
+│         Vite + React 19 + TypeScript         │
 └──────────────────────┬───────────────────────┘
-                       │
                        ▼
 ┌──────────────────────────────────────────────┐
-│              GenLayer JS SDK                 │
-│        createClient / read / write           │
+│            GenLayer JS SDK                   │
+│      createClient / read / write             │
 └──────────────────────┬───────────────────────┘
-                       │
                        ▼
 ┌──────────────────────────────────────────────┐
-│          TruthLock Intelligent Contract      │
-│                 Python / GenVM               │
-├──────────────────────────────────────────────┤
-│ Claim Processing                             │
-│ Web Evidence Retrieval                       │
-│ LLM Reasoning                                │
-│ Source Cross-Referencing                     │
-│ Validator Consensus                          │
-│ On-Chain Storage                             │
+│     TruthLock Intelligent Contract           │
+│            Python / GenVM                    │
+│  Claim Processing · Web Evidence Retrieval   │
+│  LLM Reasoning · Validator Consensus         │
+│  On-Chain Storage                            │
 └──────────────────────────────────────────────┘
 ```
 
-### Design principle
-
-All GenLayer SDK interaction is isolated inside:
-
-```text
-frontend/src/lib/genlayer.ts
-```
-
-React components **never call the SDK directly**.
-
-This keeps blockchain infrastructure separated from UI logic.
+**Design principle:** all GenLayer SDK interaction is isolated in `frontend/src/lib/genlayer.ts` — React components never call the SDK directly.
 
 ---
 
@@ -458,28 +190,14 @@ This keeps blockchain infrastructure separated from UI logic.
 ```text
 .
 ├── contract/
-│   ├── fact_checker.py
-│   ├── governance_dao.py
-│   └── tests/
-│       ├── test_direct.py
-│       └── test_integration.py
-│
+│   ├── fact_checker.py        # main fact-checker contract
+│   ├── governance_dao.py      # GovernanceDAO reference integration
+│   └── tests/                 # direct-mode + integration tests
 ├── frontend/
-│   ├── src/
-│   │   ├── lib/
-│   │   │   └── genlayer.ts
-│   │   └── pages/
-│   │       ├── Home
-│   │       ├── History
-│   │       ├── Result
-│   │       ├── Stats
-│   │       ├── Leaderboard
-│   │       └── Governance
-│   └── ...
-│
-├── docs/
-│   └── design system + GenLayer submission notes
-│
+│   ├── src/lib/genlayer.ts    # all SDK calls isolated here
+│   └── src/pages/             # Home, History, Result, Stats, Leaderboard, Governance
+├── docs/                      # design system + submission notes
+├── Images/                    # README screenshots
 ├── AGENTS.md
 └── README.md
 ```
@@ -488,80 +206,52 @@ This keeps blockchain infrastructure separated from UI logic.
 
 # 🛠️ Tech Stack
 
-| Layer            | Technology                     |
-| ---------------- | ------------------------------ |
-| Smart Contracts  | GenLayer Intelligent Contracts |
-| Contract Runtime | Python / GenVM                 |
-| Consensus        | Optimistic Democracy           |
-| Web Evidence     | `gl.nondet.web.render`         |
-| Frontend         | React 19                       |
-| Build Tool       | Vite                           |
-| Language         | TypeScript                     |
-| Blockchain SDK   | `genlayer-js`                  |
-| Wallet           | Browser wallet / MetaMask      |
-| Testing          | Pytest + gltest                |
-| Deployment       | GenLayer Studio                |
+| Layer | Technology |
+| --- | --- |
+| Smart Contracts | GenLayer Intelligent Contracts |
+| Contract Runtime | Python / GenVM |
+| Consensus | Optimistic Democracy |
+| Web Evidence | `gl.nondet.web.render` |
+| Frontend | React 19 + Vite + TypeScript |
+| Blockchain SDK | `genlayer-js` |
+| Wallet | Browser wallet / MetaMask |
+| Testing | Pytest + gltest |
+| Deployment | GenLayer Studio |
 
 ---
 
 # 🚀 Getting Started
 
-## Prerequisites
+**Prerequisites:** Node.js, npm, Python 3, a browser wallet (e.g. MetaMask), GenLayer CLI.
 
-Make sure you have:
-
-* Node.js
-* npm
-* Python 3
-* A browser wallet such as MetaMask
-* GenLayer CLI
-
----
-
-## 1. Install GenLayer CLI
+### 1. Install GenLayer CLI
 
 ```bash
 npm install -g genlayer
 ```
 
-On Linux, additional system packages such as `libsecret` may be required.
+> On Linux, additional system packages such as `libsecret` may be required.
 
----
-
-## 2. Start Local GenLayer
-
-Optional — only required for local development/testing.
+### 2. Start Local GenLayer (optional)
 
 ```bash
 genlayer init
 genlayer up
 ```
 
----
-
-## 3. Deploy TruthLock
+### 3. Deploy TruthLock
 
 ```bash
 genlayer deploy --contract contract/fact_checker.py
-```
-
-Optional governance contract:
-
-```bash
+# optional governance contract:
 genlayer deploy --contract contract/governance_dao.py
 ```
 
-Copy the deployed contract addresses.
-
----
-
-# 🌐 Frontend Setup
+### 4. Frontend Setup
 
 ```bash
 cd frontend
-
 npm install
-
 cp .env.example .env
 ```
 
@@ -569,89 +259,47 @@ Configure `.env`:
 
 ```env
 VITE_CONTRACT_ADDRESS=0x...
-VITE_NETWORK=studionet
+VITE_NETWORK=studionet        # localnet | studionet | testnetAsimov | testnetBradbury
 VITE_GOVERNANCE_ADDRESS=
 VITE_EXPLORER_URL=
 ```
 
-Supported networks:
-
-```text
-localnet
-studionet
-testnetAsimov
-testnetBradbury
-```
-
-Start the application:
-
 ```bash
-npm run dev
+npm run dev   # open http://localhost:3000
 ```
 
-Open:
+> Submitting a claim requires a browser wallet. Reading existing verification records does not.
 
-```text
-http://localhost:3000
-```
+### Use the Existing Deployment
 
-> Submitting a claim requires a browser wallet. Reading existing verification records does not require one.
-
----
-
-# 🌍 Use the Existing Deployment
-
-You can also connect the frontend to the deployed TruthLock contract:
+You can also point the frontend at the live contract:
 
 ```env
 VITE_CONTRACT_ADDRESS=0x3F0E70f8655A52a436924261461E2fFdad236b16
 VITE_NETWORK=studionet
 ```
 
-### Current deployment
-
-```text
-Network:
-GenLayer Studio Testnet
-
-Contract:
-0x3F0E70f8655A52a436924261461E2fFdad236b16
-
-Application:
-https://truthlockdapp.vercel.app
-```
+| | |
+| --- | --- |
+| **Network** | GenLayer Studio Testnet |
+| **Contract** | `0x3F0E70f8655A52a436924261461E2fFdad236b16` |
+| **Application** | [truthlockdapp.vercel.app](https://truthlockdapp.vercel.app) |
 
 ---
 
 # 🧪 Testing
 
-## Direct Tests
-
-Direct mode uses mocked web and LLM responses and does not require the SDK.
+**Direct tests** (mocked web/LLM, no SDK required):
 
 ```bash
 python3 -m pytest contract/tests/test_direct.py -v
 ```
 
----
-
-## Integration Tests
-
-Install `gltest`:
+**Integration tests** (requires a Studio/localnet node):
 
 ```bash
 pip install gltest
-```
-
-Set the Studio URL:
-
-```bash
 export GENLAYER_STUDIO_URL=http://localhost:8080
-```
-
-Run:
-
-```bash
 pytest contract/tests/test_integration.py -v
 ```
 
@@ -659,241 +307,43 @@ pytest contract/tests/test_integration.py -v
 
 # 📡 Smart Contract API
 
-The `FactChecker` contract exposes the following public methods.
-
-| Method                | Type  | Description                      |
-| --------------------- | ----- | -------------------------------- |
-| `submit_claim()`      | Write | Submit and verify a claim        |
-| `get_check()`         | View  | Retrieve a specific verification |
-| `get_recent_checks()` | View  | Retrieve recent checks           |
-| `get_stats()`         | View  | Retrieve network statistics      |
-
-### `submit_claim`
-
-```text
-submit_claim(
-    claim,
-    source_url="",
-    source_urls=[]
-)
-```
-
-Runs the complete verification pipeline and returns a check ID.
-
-### `get_check`
-
-```text
-get_check(id)
-```
-
-Returns the complete `FactCheckRecord`.
-
-### `get_recent_checks`
-
-```text
-get_recent_checks(limit=10)
-```
-
-Returns the latest verification records.
-
-Maximum:
-
-```text
-50
-```
-
-### `get_stats`
-
-```text
-get_stats()
-```
-
-Returns:
-
-* Total checks
-* Verdict distribution
-* Verification mode distribution
-* Latest verification timestamp
+| Method | Type | Description |
+| --- | --- | --- |
+| `submit_claim(claim, source_url="", source_urls=[])` | Write | Runs the full verification pipeline, returns a check ID |
+| `get_check(id)` | View | Returns the complete `FactCheckRecord` |
+| `get_recent_checks(limit=10)` | View | Latest verification records (max 50) |
+| `get_stats()` | View | Total checks, verdict + mode distribution, latest timestamp |
 
 ---
 
 # 🔗 Cross-Contract Integration
 
-Other Intelligent Contracts can consume TruthLock results directly.
-
-Example:
+Other Intelligent Contracts can consume TruthLock results directly:
 
 ```python
-truthlock = gl.get_contract(
-    "0x3F0E70f8655A52a436924261461E2fFdad236b16"
-)
-
+truthlock = gl.get_contract("0x3F0E70f8655A52a436924261461E2fFdad236b16")
 result = truthlock.get_check(check_id)
 ```
 
-This enables TruthLock to become a **shared verification layer for other decentralized applications**.
-
-For example:
-
-```text
-TruthLock
-    │
-    ├── Governance
-    ├── Prediction Markets
-    ├── DAOs
-    ├── Social Networks
-    ├── News Platforms
-    ├── Reputation Systems
-    └── AI Agents
-```
+This makes TruthLock a **shared verification layer** for Governance, DAOs, prediction markets, social networks, news platforms, reputation systems, and AI agents.
 
 ---
 
 # 🗺️ Roadmap
 
-## Phase 1 — Core Verification ✅
+- ✅ **Phase 1 — Core Verification** (shipped): claim submission, source-based + knowledge-based verification, multi-source reasoning, validator consensus, on-chain storage, history, analytics, developer examples
+- 🚧 **Phase 2 — Publisher Independence**: detect when sources share a publisher/domain/network and weight such agreement lower. *The current deployment records source fetch status but does not yet weight publisher independence.*
+- 🔜 **Phase 3 — Dispute & Appeals**: on-chain challenge mechanism → validator re-review → new consensus → updated resolution
+- 🔜 **Phase 4 — Reputation-Aware Consensus**: live validator agreement, historical accuracy, and reputation display
+- 🔜 **Phase 5 — Public Verification API**: REST API, embeddable verdict badges, developer SDK (the `/embed/:id` widget is the foundation)
 
-* [x] Claim submission
-* [x] Source-based verification
-* [x] Knowledge-based verification
-* [x] Multi-source reasoning
-* [x] Validator consensus
-* [x] On-chain verdict storage
-* [x] Verification history
-* [x] Network statistics
-* [x] Developer integration examples
-
----
-
-## Phase 2 — Stronger Evidence Verification 🚧
-
-### Publisher Independence
-
-Detect when multiple sources originate from:
-
-* The same publisher
-* The same domain
-* Closely related publisher networks
-
-Agreement between dependent sources should receive less evidentiary weight.
-
-> The current deployment records source fetch status but does **not yet weight publisher independence**.
-
----
-
-## Phase 3 — Dispute & Appeals
-
-Introduce an on-chain challenge mechanism.
-
-```text
-Verdict
-   │
-   ▼
-Challenge
-   │
-   ▼
-Validator Re-Review
-   │
-   ▼
-New Consensus
-   │
-   ▼
-Updated Resolution
-```
-
-This creates an explicit dispute-resolution layer for controversial claims.
-
----
-
-## Phase 4 — Reputation-Aware Consensus
-
-Display live validator consensus and reputation information.
-
-Potential metrics:
-
-* Validator agreement
-* Historical accuracy
-* Participation
-* Reputation
-* Consensus confidence
-
----
-
-## Phase 5 — Public Verification API
-
-Expose TruthLock as public infrastructure through:
-
-* REST API
-* Embeddable verdict badges
-* Verification widgets
-* Developer SDK
-* `/embed/:id` integrations
-
-The existing `/embed/:id` widget provides the foundation for this direction.
-
----
-
-# 🔮 Long-Term Vision
-
-TruthLock is designed to evolve from a fact-checking application into a **decentralized truth-verification layer**.
-
-Instead of every application independently building its own fact-checking system:
-
-```text
-                 ┌───────────────┐
-                 │   TruthLock   │
-                 │ Verification  │
-                 │     Layer     │
-                 └───────┬───────┘
-                         │
-        ┌────────────────┼────────────────┐
-        ▼                ▼                ▼
-   Prediction         Social           Governance
-    Markets           Apps               DAOs
-        │                │                │
-        └────────────────┼────────────────┘
-                         ▼
-                  Trusted Web3 Apps
-```
-
-The goal is simple:
-
-> **Make claims verifiable, evidence auditable, and verdicts composable.**
-
----
-
-# 🎨 Verdict Colors
-
-| Verdict        | Color     |
-| -------------- | --------- |
-| `TRUE`         | `#00E5A0` |
-| `FALSE`        | `#FF4D4D` |
-| `MISLEADING`   | `#FFB800` |
-| `UNVERIFIABLE` | `#6B7280` |
+> **Long-term vision:** make claims verifiable, evidence auditable, and verdicts composable — a decentralized truth-verification layer for Web3.
 
 ---
 
 # 🔐 Security & Trust Model
 
-TruthLock does not treat a single LLM response as ground truth.
-
-Instead, the system combines:
-
-```text
-Web Evidence
-     +
-LLM Analysis
-     +
-Multiple Sources
-     +
-Validator Re-execution
-     +
-Optimistic Democracy
-     +
-On-Chain Storage
-```
-
-The result is intended to make fact-checking **more transparent, reproducible, and composable**.
+TruthLock does not treat a single LLM response as ground truth. It combines **web evidence + LLM analysis + multiple sources + validator re-execution + Optimistic Democracy + on-chain storage** — making fact-checking more transparent, reproducible, and composable.
 
 ---
 
@@ -905,13 +355,6 @@ MIT License
 
 # ⭐ Built With
 
-Built with ❤️ using:
-
-* **GenLayer Intelligent Contracts**
-* **GenVM**
-* **React**
-* **TypeScript**
-* **Vite**
-* **genlayer-js**
+**GenLayer Intelligent Contracts** · **GenVM** · **React** · **TypeScript** · **Vite** · **genlayer-js**
 
 **TruthLock — Verify the claim. Preserve the proof.**
