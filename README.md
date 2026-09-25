@@ -261,7 +261,7 @@ Configure `.env`:
 VITE_CONTRACT_ADDRESS=0x...
 VITE_NETWORK=studionet        # localnet | studionet | testnetAsimov | testnetBradbury
 VITE_GOVERNANCE_ADDRESS=
-VITE_EXPLORER_URL=
+VITE_EXPLORER_URL=https://explorer-studio.genlayer.com
 ```
 
 ```bash

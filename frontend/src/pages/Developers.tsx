@@ -87,7 +87,7 @@ contract MyDAO {
     }
 }`;
 
-const CURL_EXAMPLE = `curl -X POST https://studio.genlayer.com/rpc \\
+const CURL_EXAMPLE = `curl -X POST https://studio.genlayer.com/api \\
   -H "Content-Type: application/json" \\
   -d '{
     "jsonrpc": "2.0",

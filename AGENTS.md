@@ -450,7 +450,7 @@ npm run dev
 VITE_CONTRACT_ADDRESS=0x...
 VITE_NETWORK=studionet
 VITE_GOVERNANCE_ADDRESS=        # optional
-VITE_EXPLORER_URL=              # optional
+VITE_EXPLORER_URL=https://explorer-studio.genlayer.com   # studionet canonical explorer; genlayer-explorer.vercel.app is paused/dead, never use it
 ```
 
 ---
@@ -489,7 +489,7 @@ WHAT'S BUILT:
 - FactChecker Intelligent Contract (Python/GenVM) with 4 public methods
 - GovernanceDAO contract reading FactChecker verdicts cross-contract
 - Vite + React 19 + TypeScript frontend calling the contract end-to-end via genlayer-js
-- Direct mode test suite (40 tests, all LLM/web calls mocked) + Studio integration suite
+- Direct mode test suite (104 tests: 51 direct + 53 governance, all LLM/web calls mocked) + Studio integration suite
 
 REPO: https://github.com/habte-selassie27/truthlock-genlayer
 ```

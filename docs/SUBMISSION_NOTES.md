@@ -43,7 +43,7 @@ WHAT'S BUILT:
   verify and execute DAO proposals (membership + quorum + supermajority enforced)
 - Vite + React 19 + TypeScript frontend calling the contract end-to-end via
   genlayer-js (wallet connection, live tx status pending → consensus → verdict)
-- Direct mode test suite (50 tests, all LLM/web calls mocked) + governance suite
+- Direct mode test suite (51 tests, all LLM/web calls mocked) + governance suite
   (53 tests) + Studio integration suite (deploy, live claim, storage, history)
 - Result page with animated confidence ring, validator consensus proof,
   per-source evidence provenance (status/hash/length), shareable embed widget,
@@ -51,8 +51,8 @@ WHAT'S BUILT:
 
 HOW TO USE:
 1. Open the app and connect your wallet
-2. Enter a claim (e.g. "The Great Wall of China is visible from space") and
-   optionally any https:// source URL (or several)
+2. Enter a claim (e.g. "Mount Everest is the highest mountain on Earth above sea
+   level") and optionally any https:// source URL (or several)
 3. Watch the transaction status: pending → validators reaching consensus → verdict recorded
 4. The result page shows the verdict, confidence, explanation, and every source
    checked with per-source provenance — permanently verifiable via the History page
@@ -66,8 +66,11 @@ REPO: https://github.com/habte-selassie27/truthlock-genlayer
 - **Deployed frontend:** https://truthlockdapp.vercel.app
 - **Contract address (FactChecker):** `0x9b90c77e4aC786489fA057627a9aAcfC1759543d`
 - **Contract address (GovernanceDAO):** `0xED92EC7C92027DF80636665E765BbE51B6F7350b`
+- **Explorer (canonical for studionet):** https://explorer-studio.genlayer.com
+  (do not use `genlayer-explorer.vercel.app` — that deployment is paused by its
+  owner and returns HTTP 503 for every page, including tx lookups)
 - **Network:** GenLayer Studio testnet (studionet)
-- **Example check to open live:** [/result/5d334c891790296545](https://truthlockdapp.vercel.app/result/5d334c891790296545) — "The Great Wall of China is visible from space with the naked eye" → UNVERIFIABLE · 18%
+- **Example check to open live:** [/result/5d334c891790297624](https://truthlockdapp.vercel.app/result/5d334c891790297624) — "Mount Everest is the highest mountain on Earth above sea level" → TRUE · 70%
 - **Also try:** /stats (source reliability analytics + live verdict feed), /history (searchable on-chain history), /developers (cross-contract integration examples + API playground)
 
 Reviewers should be able to: connect a wallet, submit a claim with a real URL,
