@@ -98,12 +98,17 @@ export default function EvidencePanel({ record }: EvidencePanelProps) {
     );
   }
 
+  const evidenceByUrl = new Map(
+    (record.source_details ?? []).map((d) => [d.url, d])
+  );
   const allSources = [
     record.source_url,
     ...record.sources_checked.filter((s) => s !== record.source_url),
-  ];
-  const fetchedCount = allSources.filter((_, i) => {
-    if (i === 0) return record.source_status === "FETCHED";
+  ].filter(Boolean);
+  const fetchedCount = allSources.filter((url) => {
+    const detail = evidenceByUrl.get(url);
+    if (detail) return detail.status === "FETCHED";
+    if (url === record.source_url) return record.source_status === "FETCHED";
     return true;
   }).length;
   const agreement = agreementTier(record.confidence);
@@ -157,10 +162,14 @@ export default function EvidencePanel({ record }: EvidencePanelProps) {
       <div className="space-y-3">
         {allSources.map((url, index) => {
           const isExpanded = expanded === index;
-          const isPrimary = index === 0;
+          const detail = evidenceByUrl.get(url);
+          const isPrimary = detail ? detail.role === "primary" : index === 0;
           const cred = getCredibility(url);
-          const status = isPrimary ? record.source_status : "FETCHED";
+          const status = detail?.status ?? (index === 0 ? record.source_status : "FETCHED");
           const badge = STATUS_BADGE[status] ?? STATUS_BADGE["ERROR"];
+          const host = detail?.host || domainOf(url);
+          const hash = detail?.content_hash ?? "";
+          const length = detail?.content_length ?? 0;
 
           return (
             <motion.div
@@ -203,7 +212,7 @@ export default function EvidencePanel({ record }: EvidencePanelProps) {
                     )}
                   </div>
                   <span className="mt-0.5 block truncate font-mono text-xs text-ink">
-                    {isExpanded ? url : domainOf(url)}
+                    {isExpanded ? url : host}
                   </span>
                 </div>
                 <span
@@ -240,6 +249,38 @@ export default function EvidencePanel({ record }: EvidencePanelProps) {
                     {url.length > 60 ? "..." : ""}
                     <ExternalLink size={10} className="shrink-0" />
                   </a>
+                  {detail && (
+                    <div className="mb-3 grid grid-cols-1 gap-1.5 rounded border border-line-dim bg-surface px-3 py-2 font-mono text-[0.6rem] text-ink-dim sm:grid-cols-2">
+                      <div>
+                        <span className="uppercase tracking-wider text-ink-ghost">
+                          Host{" "}
+                        </span>
+                        {detail.host || "—"}
+                      </div>
+                      <div>
+                        <span className="uppercase tracking-wider text-ink-ghost">
+                          Role{" "}
+                        </span>
+                        {detail.role}
+                      </div>
+                      <div>
+                        <span className="uppercase tracking-wider text-ink-ghost">
+                          Length{" "}
+                        </span>
+                        {length > 0 ? `${length.toLocaleString()} chars` : "—"}
+                      </div>
+                      <div className="truncate">
+                        <span className="uppercase tracking-wider text-ink-ghost">
+                          Hash{" "}
+                        </span>
+                        {hash ? (
+                          <span title={hash}>{hash.slice(0, 12)}…</span>
+                        ) : (
+                          "—"
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 text-[0.6rem] text-ink-ghost">
                     <span className="font-mono uppercase tracking-wider">
                       Why it matters
@@ -258,8 +299,9 @@ export default function EvidencePanel({ record }: EvidencePanelProps) {
       </div>
 
       <p className="mt-4 font-mono text-[0.6rem] text-ink-ghost">
-        Sources were retrieved live during on-chain verification. Credibility
-        scores reflect established-source quality tiers.
+        Sources were retrieved live during on-chain verification. Per-source
+        provenance (status, content hash, length) is stored on-chain with each
+        check. Credibility scores reflect established-source quality tiers.
       </p>
     </motion.section>
   );

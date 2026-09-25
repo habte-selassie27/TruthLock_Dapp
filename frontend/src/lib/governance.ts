@@ -4,9 +4,11 @@ import { ExecutionResult, TransactionStatus } from "genlayer-js/types";
 import {
   isProposalStatus,
   isVerdict,
+  isVerificationMode,
   type GovernanceProposal,
   type GovernanceStats,
   type Verdict,
+  type VerificationMode,
 } from "./types";
 import { CONTRACT_ADDRESS, NETWORK } from "./genlayer";
 import { studionet } from "genlayer-js/chains";
@@ -32,6 +34,9 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function coerceProposal(value: unknown): GovernanceProposal {
   const raw = asRecord(value);
+  const truthlockMode: VerificationMode = isVerificationMode(raw.truthlock_mode)
+    ? raw.truthlock_mode
+    : "KNOWLEDGE_BASED";
   return {
     id: String(raw.id ?? ""),
     title: String(raw.title ?? ""),
@@ -42,6 +47,7 @@ function coerceProposal(value: unknown): GovernanceProposal {
       ? raw.truthlock_verdict
       : "UNVERIFIABLE",
     truthlock_confidence: Number(raw.truthlock_confidence ?? 0),
+    truthlock_mode: truthlockMode,
     status: isProposalStatus(raw.status) ? raw.status : "PENDING",
     votes_for: Number(raw.votes_for ?? 0),
     votes_against: Number(raw.votes_against ?? 0),
@@ -66,9 +72,14 @@ function coerceStats(value: unknown): GovernanceStats {
   return {
     total_proposals: Number(raw.total_proposals ?? 0),
     member_count: Number(raw.member_count ?? 0),
+    admin: typeof raw.admin === "string" ? raw.admin : undefined,
     statuses,
     truthlock_address: String(raw.truthlock_address ?? ""),
     min_confidence: Number(raw.min_confidence ?? 70),
+    quorum_divisor:
+      typeof raw.quorum_divisor === "number" ? raw.quorum_divisor : undefined,
+    supermajority:
+      typeof raw.supermajority === "string" ? raw.supermajority : undefined,
   };
 }
 

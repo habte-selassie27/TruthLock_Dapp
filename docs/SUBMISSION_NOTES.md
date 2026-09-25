@@ -18,28 +18,36 @@ HOW IT WORKS:
    gl.nondet.web.render(), then an LLM pass extracts up to 2 corroborating URLs from
    the fetched content, and all sources are fetched and cross-referenced
 3. KNOWLEDGE_BASED mode (no URL, or all fetches failed): the LLM evaluates from its
-   own knowledge with confidence capped at 85 and an explicit no-live-evidence note
-4. Validators re-run the pipeline and reach consensus via Optimistic Democracy,
+   own knowledge with confidence code-capped at 85 and an explicit no-live-evidence note
+4. Evidence provenance is stored per source on-chain: status, role (primary/corroborating),
+   host, content length, FNV-1a content hash, and retrieval timestamp (SourceEvidence)
+5. Strong verdicts (TRUE/FALSE/MISLEADING) in SOURCE_VERIFIED mode require ≥2
+   independent FETCHED hosts for confidence above 70 — enforced in code, not just prompt
+6. Validators re-run the pipeline and reach consensus via Optimistic Democracy,
    constrained by the equivalence principle (verdict identical across validators)
-5. Result is stored permanently on-chain: TRUE / FALSE / MISLEADING / UNVERIFIABLE,
-   with confidence, explanation, verification mode, and per-source fetch status
+7. Result is stored permanently on-chain: TRUE / FALSE / MISLEADING / UNVERIFIABLE,
+   with confidence, explanation, verification mode, and per-source provenance
+8. GovernanceDAO consumes verdicts cross-contract with enforced membership,
+   quorum (≥50% of members voting), 2/3 supermajority, confidence ≥70, and
+   SOURCE_VERIFIED mode required before a proposal can execute
 
 WHY GENLAYER:
 GenLayer's LLM consensus + live web access enables trustless judgment — no oracle,
-no human reviewer, no centralized API. The verdict, its reasoning, and the consensus
-votes are all auditable forever.
+no human reviewer, no centralized API. The verdict, its reasoning, its evidence
+provenance, and the consensus votes are all auditable forever.
 
 WHAT'S BUILT:
 - FactChecker Intelligent Contract (Python/GenVM) with 4 public methods:
   submit_claim, get_check, get_recent_checks, get_stats
 - GovernanceDAO contract that reads FactChecker verdicts cross-contract to
-  verify DAO proposals (real cross-contract integration on GenLayer)
+  verify and execute DAO proposals (membership + quorum + supermajority enforced)
 - Vite + React 19 + TypeScript frontend calling the contract end-to-end via
   genlayer-js (wallet connection, live tx status pending → consensus → verdict)
-- Direct mode test suite (40 tests, all LLM/web calls mocked) + Studio
-  integration suite (deploy, live claim, storage, history)
+- Direct mode test suite (50 tests, all LLM/web calls mocked) + governance suite
+  (53 tests) + Studio integration suite (deploy, live claim, storage, history)
 - Result page with animated confidence ring, validator consensus proof,
-  evidence panel, verdict matrix, shareable embed widget, and PDF/report export
+  per-source evidence provenance (status/hash/length), shareable embed widget,
+  and PDF/report export
 
 HOW TO USE:
 1. Open the app and connect your wallet
@@ -47,7 +55,7 @@ HOW TO USE:
    optionally any https:// source URL (or several)
 3. Watch the transaction status: pending → validators reaching consensus → verdict recorded
 4. The result page shows the verdict, confidence, explanation, and every source
-   checked — permanently verifiable by anyone via the History page
+   checked with per-source provenance — permanently verifiable via the History page
 
 REPO: https://github.com/habte-selassie27/truthlock-genlayer
 
@@ -56,9 +64,10 @@ REPO: https://github.com/habte-selassie27/truthlock-genlayer
 ## Live demo
 
 - **Deployed frontend:** https://truthlockdapp.vercel.app
-- **Contract address (FactChecker):** `0x3F0E70f8655A52a436924261461E2fFdad236b16`
+- **Contract address (FactChecker):** `0x9b90c77e4aC786489fA057627a9aAcfC1759543d`
+- **Contract address (GovernanceDAO):** `0xED92EC7C92027DF80636665E765BbE51B6F7350b`
 - **Network:** GenLayer Studio testnet (studionet)
-- **Example check to open live:** [/result/1225DB1b1788674195](https://truthlockdapp.vercel.app/result/1225DB1b1788674195) — "The Great Wall of China is visible from space with the naked eye" → UNVERIFIABLE · 18%
+- **Example check to open live:** [/result/5d334c891790296545](https://truthlockdapp.vercel.app/result/5d334c891790296545) — "The Great Wall of China is visible from space with the naked eye" → UNVERIFIABLE · 18%
 - **Also try:** /stats (source reliability analytics + live verdict feed), /history (searchable on-chain history), /developers (cross-contract integration examples + API playground)
 
 Reviewers should be able to: connect a wallet, submit a claim with a real URL,

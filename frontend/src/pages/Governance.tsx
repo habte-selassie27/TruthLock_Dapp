@@ -22,6 +22,7 @@ import {
   getGovernanceStats,
   submitProposal,
   voteOnProposal,
+  executeProposal,
   GOVERNANCE_ADDRESS,
 } from "@/lib/governance";
 import type { GovernanceProposal } from "@/lib/types";
@@ -69,16 +70,32 @@ function ProposalCard({
   const queryClient = useQueryClient();
   const [showVote, setShowVote] = useState(false);
   const [voteError, setVoteError] = useState<string | null>(null);
+  const [execError, setExecError] = useState<string | null>(null);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["gov-proposals"] });
+    queryClient.invalidateQueries({ queryKey: ["gov-stats"] });
+  };
 
   const voteMutation = useMutation({
     mutationFn: (support: boolean) => voteOnProposal(proposal.id, support),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["gov-proposals"] });
-      queryClient.invalidateQueries({ queryKey: ["gov-stats"] });
+      invalidate();
       setShowVote(false);
     },
     onError: (err: Error) => {
       setVoteError(err.message);
+    },
+  });
+
+  const executeMutation = useMutation({
+    mutationFn: () => executeProposal(proposal.id),
+    onSuccess: () => {
+      invalidate();
+      setExecError(null);
+    },
+    onError: (err: Error) => {
+      setExecError(err.message);
     },
   });
 
@@ -87,8 +104,13 @@ function ProposalCard({
   const dotClass = VERDICT_DOT_CLASSES[proposal.truthlock_verdict] ?? "bg-mute";
   const canVote =
     proposal.status === "VERIFIED" || proposal.status === "DISPUTED";
+  const canExecute = proposal.status === "VERIFIED";
   const checkId = proposal.truthlock_check_id;
   const hasVoting = showVote && canVote;
+  const modeLabel =
+    proposal.truthlock_mode === "SOURCE_VERIFIED"
+      ? "Source-verified"
+      : "Knowledge-based";
 
   return (
     <motion.div
@@ -130,6 +152,15 @@ function ProposalCard({
           <span className="font-mono text-xs text-ink-dim">
             {proposal.truthlock_confidence}%
           </span>
+          <span
+            className={`rounded border px-1.5 py-0.5 font-mono text-[0.5rem] font-bold tracking-wider ${
+              proposal.truthlock_mode === "SOURCE_VERIFIED"
+                ? "border-signal/40 text-signal"
+                : "border-line text-ink-ghost"
+            }`}
+          >
+            {modeLabel}
+          </span>
         </div>
       </div>
 
@@ -157,64 +188,92 @@ function ProposalCard({
         </span>
       </div>
 
-      {/* Vote section */}
-      {canVote && (
-        <div className="mt-4 border-t border-line-dim pt-4">
-          {!showVote ? (
-            <button
-              type="button"
-              onClick={() => setShowVote(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-signal/30 bg-signal/5 px-4 py-2.5 font-display text-xs font-semibold text-signal transition-colors hover:border-signal/50 hover:bg-signal/10"
-            >
-              <Vote size={13} />
-              Cast your vote
-            </button>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => voteMutation.mutate(true)}
-                  disabled={voteMutation.isPending}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-signal/40 bg-signal/5 px-4 py-2.5 font-display text-xs font-semibold text-signal transition-colors hover:bg-signal/10 disabled:opacity-50"
-                >
-                  {voteMutation.isPending ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : (
-                    <Check size={13} />
-                  )}
-                  Vote FOR
-                </button>
-                <button
-                  type="button"
-                  onClick={() => voteMutation.mutate(false)}
-                  disabled={voteMutation.isPending}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-danger/40 bg-danger/5 px-4 py-2.5 font-display text-xs font-semibold text-danger transition-colors hover:bg-danger/10 disabled:opacity-50"
-                >
-                  {voteMutation.isPending ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : (
-                    <X size={13} />
-                  )}
-                  Vote AGAINST
-                </button>
-              </div>
+      {/* Vote / execute section */}
+      {(canVote || canExecute) && (
+        <div className="mt-4 border-t border-line-dim pt-4 space-y-3">
+          {canExecute && (
+            <div>
               <button
                 type="button"
-                onClick={() => {
-                  setShowVote(false);
-                  setVoteError(null);
-                }}
-                className="w-full text-center font-mono text-[0.6rem] text-ink-ghost hover:text-ink-dim"
+                onClick={() => executeMutation.mutate()}
+                disabled={executeMutation.isPending}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-signal/40 bg-signal/5 px-4 py-2.5 font-display text-xs font-semibold text-signal transition-colors hover:bg-signal/10 disabled:opacity-50"
               >
-                Cancel
+                {executeMutation.isPending ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <CheckCircle2 size={13} />
+                )}
+                Execute proposal
               </button>
-              {voteError && (
-                <p className="flex items-center gap-1 font-mono text-xs text-danger">
-                  <AlertTriangle size={11} /> {voteError}
+              <p className="mt-1.5 text-center font-mono text-[0.55rem] text-ink-ghost">
+                Requires quorum (≥50% members), 2/3 supermajority, confidence
+                ≥70%, and SOURCE_VERIFIED mode
+              </p>
+              {execError && (
+                <p className="flex items-center justify-center gap-1 font-mono text-xs text-danger">
+                  <AlertTriangle size={11} /> {execError}
                 </p>
               )}
             </div>
+          )}
+          {canVote && (
+            !showVote ? (
+              <button
+                type="button"
+                onClick={() => setShowVote(true)}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-signal/30 bg-signal/5 px-4 py-2.5 font-display text-xs font-semibold text-signal transition-colors hover:border-signal/50 hover:bg-signal/10"
+              >
+                <Vote size={13} />
+                Cast your vote
+              </button>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => voteMutation.mutate(true)}
+                    disabled={voteMutation.isPending}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-signal/40 bg-signal/5 px-4 py-2.5 font-display text-xs font-semibold text-signal transition-colors hover:bg-signal/10 disabled:opacity-50"
+                  >
+                    {voteMutation.isPending ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Check size={13} />
+                    )}
+                    Vote FOR
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => voteMutation.mutate(false)}
+                    disabled={voteMutation.isPending}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-danger/40 bg-danger/5 px-4 py-2.5 font-display text-xs font-semibold text-danger transition-colors hover:bg-danger/10 disabled:opacity-50"
+                  >
+                    {voteMutation.isPending ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <X size={13} />
+                    )}
+                    Vote AGAINST
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowVote(false);
+                    setVoteError(null);
+                  }}
+                  className="w-full text-center font-mono text-[0.6rem] text-ink-ghost hover:text-ink-dim"
+                >
+                  Cancel
+                </button>
+                {voteError && (
+                  <p className="flex items-center gap-1 font-mono text-xs text-danger">
+                    <AlertTriangle size={11} /> {voteError}
+                  </p>
+                )}
+              </div>
+            )
           )}
         </div>
       )}
@@ -443,6 +502,12 @@ export default function Governance() {
                 {stats.min_confidence}%
               </span>
             </div>
+            <div>
+              <span className="text-ink-ghost">Supermajority </span>
+              <span className="font-semibold text-ink">
+                {stats.supermajority ?? "2/3"}
+              </span>
+            </div>
           </div>
         </motion.section>
       )}
@@ -477,7 +542,7 @@ export default function Governance() {
             {
               step: "04",
               label: "Execute if verified",
-              detail: "TRUE verdict + majority votes",
+              detail: "Quorum + 2/3 + SOURCE_VERIFIED + conf ≥70",
             },
           ].map((s, i) => (
             <div key={s.step} className="text-center">

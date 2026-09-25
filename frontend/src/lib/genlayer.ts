@@ -11,8 +11,10 @@ import {
   isVerdict,
   isVerificationMode,
   isSourceStatus,
+  isSourceRole,
   type ContractStats,
   type FactCheckRecord,
+  type SourceEvidence,
   type SourceStatus,
   type VerificationMode,
   type Verdict,
@@ -130,6 +132,25 @@ interface RawRecordShape extends Record<string, unknown> {
   submitter?: unknown;
   verification_mode?: unknown;
   source_status?: unknown;
+  source_details?: unknown;
+}
+
+function coerceSourceEvidence(value: unknown): SourceEvidence | null {
+  if (value === null || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const url = String(raw.url ?? "");
+  if (!url) return null;
+  const status: SourceStatus = isSourceStatus(raw.status) ? raw.status : "ERROR";
+  const role = isSourceRole(raw.role) ? raw.role : "primary";
+  return {
+    url,
+    status,
+    role,
+    host: String(raw.host ?? ""),
+    content_length: Number(raw.content_length ?? 0),
+    content_hash: String(raw.content_hash ?? ""),
+    retrieved_at: Number(raw.retrieved_at ?? 0),
+  };
 }
 
 function coerceRecord(value: unknown): FactCheckRecord {
@@ -153,6 +174,11 @@ function coerceRecord(value: unknown): FactCheckRecord {
     : sourceUrl
       ? "FETCHED"
       : "NOT_PROVIDED";
+  const sourceDetails: SourceEvidence[] = Array.isArray(raw.source_details)
+    ? raw.source_details
+        .map(coerceSourceEvidence)
+        .filter((d): d is SourceEvidence => d !== null)
+    : [];
   return {
     id: String(raw.id ?? ""),
     claim: String(raw.claim ?? ""),
@@ -170,6 +196,7 @@ function coerceRecord(value: unknown): FactCheckRecord {
     submitter: String(raw.submitter ?? ""),
     verification_mode: verificationMode,
     source_status: sourceStatus,
+    source_details: sourceDetails,
   };
 }
 

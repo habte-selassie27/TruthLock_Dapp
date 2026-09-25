@@ -30,6 +30,7 @@ TL_CHECK_TRUE = "tl_check_true_001"
 TL_CHECK_FALSE = "tl_check_false_002"
 TL_CHECK_MISLEADING = "tl_check_mislead_003"
 TL_CHECK_UNVERIFIABLE = "tl_check_unverif_004"
+TL_CHECK_KNOWLEDGE_TRUE = "tl_check_knowledge_005"
 
 
 class _FakeMessage:
@@ -190,6 +191,16 @@ MOCK_TL_RECORDS = {
         "verification_mode": "KNOWLEDGE_BASED",
         "source_status": "NOT_PROVIDED",
     },
+    TL_CHECK_KNOWLEDGE_TRUE: {
+        "id": TL_CHECK_KNOWLEDGE_TRUE,
+        "claim": "A knowledge-mode true claim",
+        "verdict": "TRUE",
+        "confidence": 85,
+        "explanation": "Known from model knowledge without live sources.",
+        "sources_checked": [],
+        "verification_mode": "KNOWLEDGE_BASED",
+        "source_status": "NOT_PROVIDED",
+    },
 }
 
 
@@ -220,8 +231,9 @@ def dao(truthlock_mock):
     FAKE_GL.message.sender_address = FAKE_SENDER
     FAKE_GL.message.sender = FAKE_SENDER
     contract = GovernanceDAO()
-    contract.initialize(TRUTHLOCK_ADDRESS)
-    # Add some members
+    contract.initialize(TRUTHLOCK_ADDRESS)  # admin = FAKE_SENDER
+    # Admin is also an active member so they can propose/vote
+    contract.add_member(FAKE_SENDER)
     contract.add_member(FAKE_MEMBER_1)
     contract.add_member(FAKE_MEMBER_2)
     contract.add_member(FAKE_MEMBER_3)
@@ -242,6 +254,21 @@ def submit_proposal(dao, title="Test Proposal", desc="A test proposal", check_id
     return proposal_id
 
 
+def cast_votes(dao, proposal_id, votes):
+    """votes: list of (sender, support) tuples."""
+    _orig = FAKE_GL.message.sender_address
+    for sender, support in votes:
+        FAKE_GL.message.sender_address = sender
+        dao.vote(proposal_id, support)
+    FAKE_GL.message.sender_address = _orig
+
+
+def execute_happy_path_votes(dao, proposal_id, for_senders=None):
+    """Cast enough FOR votes to satisfy quorum (≥2 of 4) and 2/3 supermajority."""
+    senders = for_senders or [FAKE_SENDER, FAKE_MEMBER_1]
+    cast_votes(dao, proposal_id, [(s, True) for s in senders])
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -249,6 +276,7 @@ def submit_proposal(dao, title="Test Proposal", desc="A test proposal", check_id
 class TestInitialization:
     def test_initialize_sets_address(self, dao):
         assert dao.truthlock_address == TRUTHLOCK_ADDRESS
+        assert dao.admin == FAKE_SENDER.lower()
 
     def test_initialize_cannot_be_called_twice(self, dao):
         with pytest.raises(Exception, match="Already initialized"):
@@ -260,11 +288,33 @@ class TestInitialization:
             contract.initialize("")
 
     def test_add_member(self, dao):
-        assert dao.member_count == 3
+        assert dao.member_count == 4  # admin + 3 members
 
     def test_add_duplicate_member_rejected(self, dao):
         with pytest.raises(Exception, match="Already a member"):
             dao.add_member(FAKE_MEMBER_1)
+
+    def test_add_member_admin_only(self, dao):
+        FAKE_GL.message.sender_address = FAKE_MEMBER_1
+        try:
+            with pytest.raises(Exception, match="admin"):
+                dao.add_member("0x9999999999999999")
+        finally:
+            FAKE_GL.message.sender_address = FAKE_SENDER
+
+    def test_remove_member_admin_only(self, dao):
+        FAKE_GL.message.sender_address = FAKE_MEMBER_1
+        try:
+            with pytest.raises(Exception, match="admin"):
+                dao.remove_member(FAKE_MEMBER_2)
+        finally:
+            FAKE_GL.message.sender_address = FAKE_SENDER
+
+    def test_remove_member(self, dao):
+        dao.remove_member(FAKE_MEMBER_3)
+        assert dao.member_count == 3
+        with pytest.raises(Exception, match="Not a member"):
+            dao.remove_member(FAKE_MEMBER_3)
 
 
 class TestProposalSubmission:
@@ -342,6 +392,23 @@ class TestProposalSubmission:
         assert proposal["truthlock_verdict"] == "UNVERIFIABLE"
         assert proposal["status"] == "UNVERIFIABLE"
 
+    def test_non_member_cannot_propose(self, dao):
+        FAKE_GL.message.sender_address = "0xDEADBEEFDEADBEEF"
+        try:
+            with pytest.raises(Exception, match="not an active DAO member"):
+                dao.submit_proposal(
+                    title="Intruder",
+                    description="desc",
+                    truthlock_check_id=TL_CHECK_TRUE,
+                )
+        finally:
+            FAKE_GL.message.sender_address = FAKE_SENDER
+
+    def test_proposal_caches_truthlock_mode(self, dao):
+        proposal_id = submit_proposal(dao)
+        proposal = dao.get_proposal(proposal_id)
+        assert proposal["truthlock_mode"] == "SOURCE_VERIFIED"
+
 
 class TestVoting:
     def test_vote_for_verified_proposal(self, dao):
@@ -374,7 +441,7 @@ class TestVoting:
 
     def test_cannot_vote_on_executed_proposal(self, dao):
         proposal_id = submit_proposal(dao)
-        dao.vote(proposal_id, True)
+        execute_happy_path_votes(dao, proposal_id)
         dao.execute_proposal(proposal_id)
         with pytest.raises(Exception, match="Cannot vote on"):
             dao.vote(proposal_id, True)
@@ -406,11 +473,21 @@ class TestVoting:
         with pytest.raises(Exception, match="Proposal not found"):
             dao.vote("nonexistent", True)
 
+    def test_non_member_cannot_vote(self, dao):
+        proposal_id = submit_proposal(dao)
+        FAKE_GL.message.sender_address = "0xDEADBEEFDEADBEEF"
+        try:
+            with pytest.raises(Exception, match="not an active DAO member"):
+                dao.vote(proposal_id, True)
+        finally:
+            FAKE_GL.message.sender_address = FAKE_SENDER
+
 
 class TestExecution:
-    def test_execute_verified_proposal(self, dao):
+    def test_execute_happy_path(self, dao):
+        """VERIFIED + quorum + 2/3 + confidence ≥70 + SOURCE_VERIFIED → EXECUTED."""
         proposal_id = submit_proposal(dao)
-        dao.vote(proposal_id, True)
+        execute_happy_path_votes(dao, proposal_id)
         result = dao.execute_proposal(proposal_id)
         assert "executed" in result
         proposal = dao.get_proposal(proposal_id)
@@ -422,29 +499,56 @@ class TestExecution:
         with pytest.raises(Exception, match="No votes in favor"):
             dao.execute_proposal(proposal_id)
 
+    def test_execute_requires_quorum(self, dao):
+        """member_count=4 → quorum=2. Only 1 vote → cannot execute."""
+        proposal_id = submit_proposal(dao)
+        dao.vote(proposal_id, True)  # only 1 of 4 members
+        with pytest.raises(Exception, match="Quorum not met"):
+            dao.execute_proposal(proposal_id)
+
+    def test_execute_requires_supermajority(self, dao):
+        """2 FOR + 2 AGAINST → quorum met, but FOR < 2/3."""
+        proposal_id = submit_proposal(dao)
+        cast_votes(
+            dao,
+            proposal_id,
+            [
+                (FAKE_SENDER, True),
+                (FAKE_MEMBER_1, True),
+                (FAKE_MEMBER_2, False),
+                (FAKE_MEMBER_3, False),
+            ],
+        )
+        with pytest.raises(Exception, match="Supermajority not met"):
+            dao.execute_proposal(proposal_id)
+
+    def test_execute_requires_source_verified(self, dao):
+        """TRUE verdict from KNOWLEDGE_BASED mode cannot drive execution."""
+        proposal_id = submit_proposal(dao, check_id=TL_CHECK_KNOWLEDGE_TRUE)
+        proposal = dao.get_proposal(proposal_id)
+        assert proposal["status"] == "VERIFIED"
+        assert proposal["truthlock_mode"] == "KNOWLEDGE_BASED"
+        execute_happy_path_votes(dao, proposal_id)
+        with pytest.raises(Exception, match="SOURCE_VERIFIED"):
+            dao.execute_proposal(proposal_id)
+
     def test_cannot_execute_with_majority_against(self, dao):
         proposal_id = submit_proposal(dao)
-
-        _orig_sender = FAKE_GL.message.sender_address
-        FAKE_GL.message.sender_address = FAKE_MEMBER_1
-        dao.vote(proposal_id, True)
-        FAKE_GL.message.sender_address = FAKE_MEMBER_2
-        dao.vote(proposal_id, False)
-        FAKE_GL.message.sender_address = FAKE_MEMBER_3
-        dao.vote(proposal_id, False)
-        FAKE_GL.message.sender_address = _orig_sender
-
-        with pytest.raises(Exception, match="Insufficient votes"):
+        cast_votes(
+            dao,
+            proposal_id,
+            [
+                (FAKE_SENDER, True),
+                (FAKE_MEMBER_1, False),
+                (FAKE_MEMBER_2, False),
+            ],
+        )
+        with pytest.raises(Exception, match="Supermajority not met"):
             dao.execute_proposal(proposal_id)
 
     def test_cannot_execute_disputed_proposal(self, dao):
         proposal_id = submit_proposal(dao, check_id=TL_CHECK_FALSE)
-        # Even with votes, can't execute DISPUTED
-        _orig_sender = FAKE_GL.message.sender_address
-        FAKE_GL.message.sender_address = FAKE_MEMBER_1
-        dao.vote(proposal_id, True)
-        FAKE_GL.message.sender_address = _orig_sender
-
+        cast_votes(dao, proposal_id, [(FAKE_SENDER, True), (FAKE_MEMBER_1, True)])
         with pytest.raises(Exception, match="Only VERIFIED"):
             dao.execute_proposal(proposal_id)
 
@@ -455,17 +559,38 @@ class TestExecution:
 
     def test_execution_sets_timestamp(self, dao):
         proposal_id = submit_proposal(dao)
-        dao.vote(proposal_id, True)
+        execute_happy_path_votes(dao, proposal_id)
         dao.execute_proposal(proposal_id)
         proposal = dao.get_proposal(proposal_id)
         assert proposal["executed_at"] == _mock_time.return_value
 
     def test_cannot_vote_after_execution(self, dao):
         proposal_id = submit_proposal(dao)
-        dao.vote(proposal_id, True)
+        execute_happy_path_votes(dao, proposal_id)
         dao.execute_proposal(proposal_id)
         with pytest.raises(Exception, match="Cannot vote on"):
             dao.vote(proposal_id, True)
+
+    def test_execute_below_confidence_threshold(self, dao):
+        """Confidence < min_confidence blocks execution."""
+        low_confidence_id = "tl_check_low_conf_006"
+        MOCK_TL_RECORDS[low_confidence_id] = {
+            "id": low_confidence_id,
+            "claim": "Low confidence true claim",
+            "verdict": "TRUE",
+            "confidence": 50,
+            "explanation": "Weak evidence.",
+            "sources_checked": ["https://example.com"],
+            "verification_mode": "SOURCE_VERIFIED",
+            "source_status": "FETCHED",
+        }
+        try:
+            proposal_id = submit_proposal(dao, check_id=low_confidence_id)
+            execute_happy_path_votes(dao, proposal_id)
+            with pytest.raises(Exception, match="below threshold"):
+                dao.execute_proposal(proposal_id)
+        finally:
+            MOCK_TL_RECORDS.pop(low_confidence_id, None)
 
 
 class TestGetters:
@@ -503,9 +628,11 @@ class TestGetters:
     def test_get_stats(self, dao):
         stats = dao.get_stats()
         assert stats["total_proposals"] == 0
-        assert stats["member_count"] == 3
+        assert stats["member_count"] == 4
         assert stats["truthlock_address"] == TRUTHLOCK_ADDRESS
         assert stats["min_confidence"] == 70
+        assert stats["admin"] == FAKE_SENDER.lower()
+        assert stats["supermajority"] == "2/3"
 
     def test_get_stats_after_submissions(self, dao):
         submit_proposal(dao, title="A", check_id=TL_CHECK_TRUE)
@@ -538,17 +665,14 @@ class TestEdgeCases:
         assert proposal["status"] == "VERIFIED"
 
     def test_execute_equivalent_votes_not_enough(self, dao):
-        """Equal FOR and AGAINST votes → cannot execute."""
+        """Equal FOR and AGAINST votes → supermajority fails."""
         proposal_id = submit_proposal(dao)
-
-        _orig_sender = FAKE_GL.message.sender_address
-        FAKE_GL.message.sender_address = FAKE_MEMBER_1
-        dao.vote(proposal_id, True)
-        FAKE_GL.message.sender_address = FAKE_MEMBER_2
-        dao.vote(proposal_id, False)
-        FAKE_GL.message.sender_address = _orig_sender
-
-        with pytest.raises(Exception, match="Insufficient votes"):
+        cast_votes(
+            dao,
+            proposal_id,
+            [(FAKE_SENDER, True), (FAKE_MEMBER_1, False)],
+        )
+        with pytest.raises(Exception, match="Supermajority not met"):
             dao.execute_proposal(proposal_id)
 
     def test_vote_key_uniqueness(self, dao):

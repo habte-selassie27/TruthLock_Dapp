@@ -275,14 +275,17 @@ npm run dev   # open http://localhost:3000
 You can also point the frontend at the live contract:
 
 ```env
-VITE_CONTRACT_ADDRESS=0x3F0E70f8655A52a436924261461E2fFdad236b16
+VITE_CONTRACT_ADDRESS=0x9b90c77e4aC786489fA057627a9aAcfC1759543d
+VITE_GOVERNANCE_ADDRESS=0xED92EC7C92027DF80636665E765BbE51B6F7350b
 VITE_NETWORK=studionet
+VITE_EXPLORER_URL=https://explorer-studio.genlayer.com
 ```
 
 | | |
 | --- | --- |
 | **Network** | GenLayer Studio Testnet |
-| **Contract** | `0x3F0E70f8655A52a436924261461E2fFdad236b16` |
+| **FactChecker** | `0x9b90c77e4aC786489fA057627a9aAcfC1759543d` |
+| **GovernanceDAO** | `0xED92EC7C92027DF80636665E765BbE51B6F7350b` |
 | **Application** | [truthlockdapp.vercel.app](https://truthlockdapp.vercel.app) |
 
 ---
@@ -321,7 +324,7 @@ pytest contract/tests/test_integration.py -v
 Other Intelligent Contracts can consume TruthLock results directly:
 
 ```python
-truthlock = gl.get_contract("0x3F0E70f8655A52a436924261461E2fFdad236b16")
+truthlock = gl.get_contract("0x9b90c77e4aC786489fA057627a9aAcfC1759543d")
 result = truthlock.get_check(check_id)
 ```
 

@@ -5,11 +5,14 @@ A GenLayer Intelligent Contract that integrates with TruthLock to bring
 evidence-based governance to DAOs.
 
 How it works:
-1. A proposer submits a proposal with a factual claim + TruthLock check ID
-2. The contract reads TruthLock.get_check() to verify the claim's verdict
-3. Members vote on the proposal
-4. Proposals with a TRUE verdict and enough votes can be executed
-5. FALSE/MISLEADING verdicts flag proposals as disputed
+1. Admin initializes the DAO and manages an enforced membership list
+2. A member submits a proposal with a factual claim + TruthLock check ID
+3. The contract reads TruthLock.get_check() to verify the claim's verdict,
+   confidence, and verification mode
+4. Members vote on the proposal (one vote each)
+5. Execution requires: VERIFIED status, quorum (≥50% of members voting),
+   2/3 supermajority, confidence ≥ threshold, and SOURCE_VERIFIED mode
+6. FALSE/MISLEADING verdicts flag proposals as disputed
 
 This demonstrates real cross-contract integration on GenLayer:
   GovernanceDAO → gl.get_contract(truthlock) → get_check(id)
@@ -26,6 +29,11 @@ MAX_DESCRIPTION_LENGTH = 1000
 MAX_RECENT_LIMIT = 50
 DEFAULT_RECENT_LIMIT = 10
 MIN_CONFIDENCE_THRESHOLD = 70
+QUORUM_DIVISOR = 2          # quorum: total_voters >= ceil(member_count / 2)
+SUPERMAJORITY_NUMERATOR = 2 # supermajority: votes_for * 3 >= total_voters * 2
+SUPERMAJORITY_DENOMINATOR = 3
+MODE_SOURCE_VERIFIED = "SOURCE_VERIFIED"
+MODE_KNOWLEDGE_BASED = "KNOWLEDGE_BASED"
 
 STATUS_PENDING = "PENDING"
 STATUS_VERIFIED = "VERIFIED"
@@ -64,6 +72,7 @@ class Proposal:
     truthlock_check_id: str        # reference to TruthLock verification
     truthlock_verdict: str         # cached verdict from TruthLock
     truthlock_confidence: bigint   # cached confidence
+    truthlock_mode: str            # cached verification mode from TruthLock
     status: str                    # PENDING | VERIFIED | DISPUTED | UNVERIFIABLE | EXECUTED
     votes_for: bigint              # number of votes in favor
     votes_against: bigint          # number of votes against
@@ -87,6 +96,7 @@ class GovernanceDAO(gl.Contract):
     total_proposals: bigint
     member_count: bigint
     members: TreeMap[str, bool]    # address → is_member
+    admin: str                     # set once by initialize()
     truthlock_address: str         # deployed TruthLock contract address
     min_confidence: bigint         # minimum confidence threshold
 
@@ -94,14 +104,15 @@ class GovernanceDAO(gl.Contract):
         self.total_proposals = 0
         self.member_count = 0
         self.min_confidence = MIN_CONFIDENCE_THRESHOLD
+        self.admin = ""
 
     # ------------------------------------------------------------------
-    # Initialization
+    # Initialization & membership
     # ------------------------------------------------------------------
 
     @gl.public.write
     def initialize(self, truthlock_address) -> str:
-        """Set the TruthLock contract address. Can only be called once."""
+        """Set the TruthLock contract address and admin. Call only once."""
         if self.truthlock_address != "":
             raise gl.UserError("Already initialized")
         # Handle both direct string and list-wrapped (CLI) args
@@ -113,16 +124,14 @@ class GovernanceDAO(gl.Contract):
         if addr == "":
             raise gl.UserError("TruthLock address required")
         self.truthlock_address = addr
+        self.admin = str(gl.message.sender_address).lower()
         return "initialized"
 
     @gl.public.write
     def add_member(self, address) -> str:
-        """Add a DAO member. In production, restrict to owner."""
-        if isinstance(address, (list, tuple)) and len(address) > 0:
-            address = address[0]
-        if not isinstance(address, str):
-            address = str(address) if address else ""
-        addr = address.strip().lower()
+        """Add a DAO member. Admin-only."""
+        self._require_admin()
+        addr = self._normalize_address(address)
         if addr == "":
             raise gl.UserError("Address required")
         if addr in self.members:
@@ -130,6 +139,19 @@ class GovernanceDAO(gl.Contract):
         self.members[addr] = True
         self.member_count += 1
         return f"member added: {addr}"
+
+    @gl.public.write
+    def remove_member(self, address) -> str:
+        """Remove a DAO member. Admin-only."""
+        self._require_admin()
+        addr = self._normalize_address(address)
+        if addr == "":
+            raise gl.UserError("Address required")
+        if addr not in self.members:
+            raise gl.UserError("Not a member")
+        del self.members[addr]
+        self.member_count -= 1
+        return f"member removed: {addr}"
 
     # ------------------------------------------------------------------
     # Proposal lifecycle
@@ -144,16 +166,18 @@ class GovernanceDAO(gl.Contract):
     ) -> str:
         """Submit a DAO proposal backed by a TruthLock verification.
 
-        The contract reads TruthLock.get_check(truthlock_check_id) to
-        verify the claim's verdict and caches the result.
+        Sender must be an active member. The contract reads
+        TruthLock.get_check(truthlock_check_id) to verify the claim's
+        verdict, confidence, and verification mode.
         Returns the proposal ID.
         """
         self._validate_proposal_inputs(title, description)
         if self.truthlock_address == "":
             raise gl.UserError("Contract not initialized. Call initialize() first.")
+        self._require_member()
 
         # Read TruthLock verdict via cross-contract call
-        verdict, confidence = self._read_truthlock_verdict(truthlock_check_id)
+        verdict, confidence, mode = self._read_truthlock_verdict(truthlock_check_id)
 
         # Map verdict to proposal status
         status = VERDICT_TO_STATUS.get(verdict, STATUS_UNVERIFIABLE)
@@ -168,6 +192,7 @@ class GovernanceDAO(gl.Contract):
             truthlock_check_id=truthlock_check_id.strip(),
             truthlock_verdict=verdict,
             truthlock_confidence=confidence,
+            truthlock_mode=mode,
             status=status,
             votes_for=0,
             votes_against=0,
@@ -186,9 +211,10 @@ class GovernanceDAO(gl.Contract):
         support=True → vote FOR
         support=False → vote AGAINST
 
-        Only VERIFIED and DISPUTED proposals can receive votes.
-        Each member can only vote once per proposal.
+        Sender must be an active member. Only VERIFIED and DISPUTED
+        proposals can receive votes. Each member can only vote once.
         """
+        self._require_member()
         if proposal_id not in self.proposals:
             raise gl.UserError("Proposal not found")
 
@@ -220,11 +246,12 @@ class GovernanceDAO(gl.Contract):
     def execute_proposal(self, proposal_id: str) -> str:
         """Execute a verified proposal.
 
-        Requirements:
+        Requirements (all must hold):
         - Status must be VERIFIED (TruthLock returned TRUE)
-        - Must have at least 1 vote FOR
-        - More FOR votes than AGAINST
-        - Confidence must meet minimum threshold
+        - Quorum: total_voters >= ceil(member_count / 2)
+        - Supermajority: votes_for * 3 >= total_voters * 2 (≥ 2/3 FOR)
+        - Confidence must meet minimum threshold (default 70)
+        - TruthLock verification_mode must be SOURCE_VERIFIED
         """
         if proposal_id not in self.proposals:
             raise gl.UserError("Proposal not found")
@@ -234,11 +261,30 @@ class GovernanceDAO(gl.Contract):
             raise gl.UserError(f"Only VERIFIED proposals can be executed (current: {proposal.status})")
         if proposal.votes_for == 0:
             raise gl.UserError("No votes in favor")
-        if proposal.votes_for <= proposal.votes_against:
-            raise gl.UserError("Insufficient votes (need more FOR than AGAINST)")
+
+        # Quorum: at least half of members must have voted
+        quorum = (self.member_count + QUORUM_DIVISOR - 1) // QUORUM_DIVISOR
+        if proposal.total_voters < quorum:
+            raise gl.UserError(
+                f"Quorum not met: {proposal.total_voters}/{proposal.total_voters} voted, "
+                f"need >= {quorum} of {self.member_count} members"
+            )
+
+        # Supermajority: ≥ 2/3 of votes must be FOR
+        if proposal.votes_for * SUPERMAJORITY_DENOMINATOR < proposal.total_voters * SUPERMAJORITY_NUMERATOR:
+            raise gl.UserError(
+                "Supermajority not met: need at least 2/3 of votes in favor"
+            )
+
         if proposal.truthlock_confidence < self.min_confidence:
             raise gl.UserError(
                 f"Confidence {proposal.truthlock_confidence}% below threshold {self.min_confidence}%"
+            )
+
+        if proposal.truthlock_mode != MODE_SOURCE_VERIFIED:
+            raise gl.UserError(
+                "Only SOURCE_VERIFIED TruthLock checks can drive execution "
+                f"(got {proposal.truthlock_mode})"
             )
 
         proposal.status = STATUS_EXECUTED
@@ -296,9 +342,12 @@ class GovernanceDAO(gl.Contract):
         return {
             "total_proposals": self.total_proposals,
             "member_count": self.member_count,
+            "admin": self.admin,
             "statuses": statuses,
             "truthlock_address": self.truthlock_address,
             "min_confidence": self.min_confidence,
+            "quorum_divisor": QUORUM_DIVISOR,
+            "supermajority": f"{SUPERMAJORITY_NUMERATOR}/{SUPERMAJORITY_DENOMINATOR}",
         }
 
     # ------------------------------------------------------------------
@@ -315,11 +364,29 @@ class GovernanceDAO(gl.Contract):
         if len(description) > MAX_DESCRIPTION_LENGTH:
             raise gl.UserError("Description must be 1000 characters or fewer")
 
-    def _read_truthlock_verdict(self, check_id: str) -> tuple[str, int]:
+    @staticmethod
+    def _normalize_address(address) -> str:
+        if isinstance(address, (list, tuple)) and len(address) > 0:
+            address = address[0]
+        if not isinstance(address, str):
+            address = str(address) if address else ""
+        return address.strip().lower()
+
+    def _require_admin(self) -> None:
+        sender = str(gl.message.sender_address).lower()
+        if self.admin == "" or sender != self.admin:
+            raise gl.UserError("Only the admin can manage members")
+
+    def _require_member(self) -> None:
+        sender = str(gl.message.sender_address).lower()
+        if sender not in self.members or not self.members[sender]:
+            raise gl.UserError("Sender is not an active DAO member")
+
+    def _read_truthlock_verdict(self, check_id: str) -> tuple[str, int, str]:
         """Cross-contract call to TruthLock.get_check().
 
-        Returns (verdict, confidence).
-        Falls back to UNVERIFIABLE/0 if the call fails.
+        Returns (verdict, confidence, verification_mode).
+        Falls back to UNVERIFIABLE/0/KNOWLEDGE_BASED if the call fails.
         """
         try:
             truthlock = gl.get_contract(self.truthlock_address)
@@ -327,6 +394,7 @@ class GovernanceDAO(gl.Contract):
             if isinstance(result, dict):
                 verdict = result.get("verdict", VERDICT_UNVERIFIABLE)
                 confidence = result.get("confidence", 0)
+                mode = result.get("verification_mode", MODE_KNOWLEDGE_BASED)
                 if verdict not in (
                     VERDICT_TRUE, VERDICT_FALSE,
                     VERDICT_MISLEADING, VERDICT_UNVERIFIABLE,
@@ -337,10 +405,12 @@ class GovernanceDAO(gl.Contract):
                 except (TypeError, ValueError):
                     confidence = 0
                 confidence = max(0, min(100, confidence))
-                return verdict, confidence
-            return VERDICT_UNVERIFIABLE, 0
+                if mode not in (MODE_SOURCE_VERIFIED, MODE_KNOWLEDGE_BASED):
+                    mode = MODE_KNOWLEDGE_BASED
+                return verdict, confidence, mode
+            return VERDICT_UNVERIFIABLE, 0, MODE_KNOWLEDGE_BASED
         except Exception:
-            return VERDICT_UNVERIFIABLE, 0
+            return VERDICT_UNVERIFIABLE, 0, MODE_KNOWLEDGE_BASED
 
     def _proposal_to_dict(self, proposal: Proposal) -> dict:
         return {
@@ -351,6 +421,7 @@ class GovernanceDAO(gl.Contract):
             "truthlock_check_id": proposal.truthlock_check_id,
             "truthlock_verdict": proposal.truthlock_verdict,
             "truthlock_confidence": proposal.truthlock_confidence,
+            "truthlock_mode": proposal.truthlock_mode,
             "status": proposal.status,
             "votes_for": proposal.votes_for,
             "votes_against": proposal.votes_against,

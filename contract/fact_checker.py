@@ -19,6 +19,64 @@ from dataclasses import dataclass
 
 from genlayer import *
 
+import re
+from urllib.parse import urlparse
+
+# Self-contained source-independence helpers. Studio and `genlayer deploy`
+# send only this selected contract file, so these cannot remain in a separate
+# source_independence.py module for deployment.
+FETCHED_STATUS = "FETCHED"
+
+FNV64_OFFSET = 0xCBF29CE484222325
+FNV64_PRIME = 0x100000001B3
+FNV64_MASK = 0xFFFFFFFFFFFFFFFF
+
+
+def _host(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        if not host:
+            return ""
+        # Strip www. for grouping purposes.
+        return re.sub(r"^www\.", "", host, count=1).lower()
+    except Exception:
+        return ""
+
+
+def _fnv1a64_hex(text: str) -> str:
+    """FNV-1a 64-bit hash of text as 16-char lowercase hex."""
+    h = FNV64_OFFSET
+    for ch in str(text):
+        h ^= ord(ch)
+        h = (h * FNV64_PRIME) & FNV64_MASK
+    return format(h, "016x")
+
+
+def _fetched_host_count(evidence: list) -> int:
+    """Count distinct hosts among FETCHED evidence entries.
+
+    `evidence` items may be SourceEvidence dataclasses or plain dicts with
+    at least `status` and either `host` or `url`.
+    """
+    hosts = set()
+    for item in evidence or []:
+        if isinstance(item, dict):
+            status = item.get("status", "")
+            url = item.get("url", "")
+            host = item.get("host", "") or _host(str(url))
+        else:
+            status = getattr(item, "status", "")
+            url = getattr(item, "url", "")
+            host = getattr(item, "host", "") or _host(str(url))
+        if status == FETCHED_STATUS and host:
+            hosts.add(host)
+    return len(hosts)
+
+
+def _has_independent_fetched_hosts(evidence: list, min_hosts: int = 2) -> bool:
+    return _fetched_host_count(evidence) >= min_hosts
+
 MAX_CLAIM_LENGTH = 500
 MAX_URL_LENGTH = 2048
 MAX_RECENT_LIMIT = 50
@@ -26,6 +84,13 @@ DEFAULT_RECENT_LIMIT = 10
 SOURCE_CONTENT_SLICE = 2000
 NUM_CORROBORATING_SOURCES = 2
 MAX_LLM_ATTEMPTS = 2
+
+KNOWLEDGE_CONFIDENCE_CAP = 85
+MIN_INDEPENDENT_HOSTS = 2
+INDEPENDENT_SOURCE_CAP = 70
+
+ROLE_PRIMARY = "primary"
+ROLE_CORROBORATING = "corroborating"
 
 VERDICT_TRUE = "TRUE"
 VERDICT_FALSE = "FALSE"
@@ -68,6 +133,12 @@ PIPELINE_FAILURE_EXPLANATION = (
 )
 INVALID_VERDICT_EXPLANATION = "The model returned an unrecognized verdict value."
 NO_EXPLANATION_FALLBACK = "No explanation was provided by the model."
+INDEPENDENT_EVIDENCE_NOTE = (
+    "Independent corroboration requires successful fetches from at least "
+    f"{MIN_INDEPENDENT_HOSTS} different publisher hosts. This verdict's "
+    f"confidence was capped at {INDEPENDENT_SOURCE_CAP} because the checked "
+    "sources did not meet that independence requirement."
+)
 
 ERROR_EXPECTED = "[EXPECTED]"
 ERROR_EXTERNAL = "[EXTERNAL]"
@@ -75,15 +146,20 @@ ERROR_TRANSIENT = "[TRANSIENT]"
 ERROR_LLM = "[LLM_ERROR]"
 
 EQUIVALENCE_PRINCIPLE = """
-The payload is JSON with fields: status, mode, sources, source_statuses, raw_result.
+The payload is JSON with fields: status, mode, sources, source_statuses, source_evidence, raw_result.
 For status 'ok', raw_result must contain verdict, confidence, explanation.
 For status 'unreachable', the pipeline fell back to knowledge-based evaluation and raw_result must still contain verdict, confidence, explanation.
 The verdict field must be exactly the same across validator runs and one of: TRUE, FALSE, MISLEADING, UNVERIFIABLE.
 The mode field must be exactly the same across validator runs and one of: SOURCE_VERIFIED, KNOWLEDGE_BASED.
-The confidence must be an integer between 0 and 100 and within 10 points across validator runs.
+The confidence must be an integer between 0 and 100 and within 25 points across validator runs.
 The explanation must be a non-empty string; minor wording differences are acceptable.
-The extracted sources list must contain the same primary URL (when provided) and equivalent corroborating URLs.
+The extracted sources list must contain the same primary URL (when provided). Corroborating URLs are best-effort suggestions and may differ across validator runs; a differing corroborating URL set alone does not make the verdict inconsistent.
+The source_statuses map must agree on the status for each URL that appears in both runs, except that transient fetch outcomes (FETCHED vs BLOCKED, TIMEOUT, EMPTY, ERROR) for the same URL and role may differ between runs; such a difference alone does not make the verdict inconsistent.
+The source_evidence list must contain the same source URLs with matching role values; status may differ only as described above.
+content_hash, content_length, and retrieved_at in source_evidence are retrieval metadata and may differ across validator runs when live page content or fetch timing differs; they do not make the verdict inconsistent.
 A 'unreachable' status must agree with a 'unreachable' status.
+Confidence may differ when corroborating sources come from the same publisher
+on some runs but not others; that does not make the verdict inconsistent.
 """
 
 EXTRACT_URLS_PROMPT = """You are a research assistant. Below is the text content of a web page.
@@ -125,14 +201,27 @@ Rules:
 - FALSE: Evidence directly contradicts the claim
 - MISLEADING: Claim is partially true but omits critical context
 - UNVERIFIABLE: Available evidence is insufficient to judge
+- In SOURCE_VERIFIED mode, the verdict MUST be decided only from the evidence
+  blocks. Do not use background knowledge, memory of news stories, or any fact
+  that is not stated in the evidence blocks. If the evidence blocks do not
+  directly address the claim, the verdict MUST be UNVERIFIABLE regardless of
+  what you believe to be true.
 - In SOURCE_VERIFIED mode, confidence must reflect source quality and agreement.
+  Higher confidence requires agreement among independent sources of
+  differing publishers; repeated agreement only among pages from the same
+  domain or controlled network should NOT be treated as strong independent
+  evidence and should lower confidence.
 - In KNOWLEDGE_BASED mode, cap confidence at 85 because no live evidence was checked.
-- explanation must be non-empty and reference specific evidence or state clearly why none was available.
+- explanation must be non-empty, must cite only evidence present in the evidence
+  blocks (or state clearly why none was available).
 - Return ONLY the JSON, no markdown, no preamble"""
 
-SOURCE_MODE_INSTRUCTIONS = """The user supplied a primary source URL which was fetched live.
-Corroborating sources were extracted and fetched where possible.
-Base your verdict primarily on the fetched evidence below."""
+SOURCE_MODE_INSTRUCTIONS = """The user supplied source URL(s) which were fetched live and are
+reproduced below as evidence blocks.
+Judge ONLY from those evidence blocks. Facts you recall from training are NOT evidence here
+and must not change the verdict.
+If the evidence blocks do not directly address the claim, return UNVERIFIABLE with a low
+confidence and explain in the answer that the fetched sources did not address the claim."""
 
 KNOWLEDGE_MODE_INSTRUCTIONS = """No source URL was provided, OR the provided source could not be fetched.
 Evaluate the claim from your own knowledge only.
@@ -176,7 +265,7 @@ def _clean_json(text):
 
 
 def _classify_fetch_error(exception) -> str:
-    """Map a get_webpage exception to a structured source status."""
+    """Map a web.render exception to a structured source status."""
     text = str(exception).lower()
     if "timeout" in text or "timed out" in text:
         return STATUS_TIMEOUT
@@ -191,18 +280,31 @@ def _classify_fetch_error(exception) -> str:
 
 @allow_storage
 @dataclass
+class SourceEvidence:
+    url: str                  # source URL
+    status: str               # NOT_PROVIDED|FETCHED|EMPTY|BLOCKED|TIMEOUT|INVALID|ERROR
+    role: str                 # "primary" | "corroborating"
+    host: str                 # normalized hostname (www. stripped, lowercased)
+    content_length: bigint    # length of fetched text (0 if not fetched)
+    content_hash: str         # FNV-1a 64-bit hex of fetched text ("" if not fetched)
+    retrieved_at: bigint      # int(time.time()) at fetch; 0 if not fetched
+
+
+@allow_storage
+@dataclass
 class FactCheckRecord:
     id: str                   # generated at submission (see submit_claim)
     claim: str                # raw claim text (max 500 chars)
     source_url: str           # primary URL ("" when knowledge-based)
     verdict: str              # TRUE | FALSE | MISLEADING | UNVERIFIABLE
-    confidence: bigint        # 0-100
+    confidence: bigint        # 0-100 (code-capped: see module constants)
     explanation: str          # LLM reasoning — never empty
     sources_checked: DynArray[str]
     timestamp: bigint         # int(time.time()) — tx-pinned clock
     submitter: str            # wallet address
     verification_mode: str    # SOURCE_VERIFIED | KNOWLEDGE_BASED
     source_status: str        # NOT_PROVIDED|FETCHED|EMPTY|BLOCKED|TIMEOUT|INVALID|ERROR
+    source_details: DynArray[SourceEvidence]  # per-source provenance
 
 
 class FactChecker(gl.Contract):
@@ -262,6 +364,7 @@ class FactChecker(gl.Contract):
             explanation,
             mode,
             source_status,
+            source_details,
         ) = self._resolve_outcome(parsed, primary_urls)
         self._store_record(
             check_id=check_id,
@@ -273,6 +376,7 @@ class FactChecker(gl.Contract):
             sources=sources_checked,
             mode=mode,
             source_status=source_status,
+            source_details=source_details,
         )
         return check_id
 
@@ -347,6 +451,8 @@ class FactChecker(gl.Contract):
           so the user still gets a verdict (never a bare 0% dead end).
         - Multiple primary URLs: fetch all, extract corroborating from each,
           cross-reference everything.
+        - Every fetch attempt records a SourceEvidence provenance entry
+          (success or failure) in source_evidence.
         """
         if len(primary_urls) == 0:
             raw_result = self._evaluate_via_llm(
@@ -361,6 +467,7 @@ class FactChecker(gl.Contract):
                     "mode": MODE_KNOWLEDGE_BASED,
                     "sources": [],
                     "source_statuses": {},
+                    "source_evidence": [],
                     "raw_result": raw_result if isinstance(raw_result, dict) else None,
                     "failed_count": 0,
                 }
@@ -369,22 +476,19 @@ class FactChecker(gl.Contract):
         contents: list[str] = []
         fetched_urls: list[str] = []
         source_statuses: dict[str, str] = {}
+        source_evidence: list[dict] = []
         failed_count = 0
 
         # Fetch all primary sources
         for url in primary_urls:
-            try:
-                content = str(gl.nondet.web.render(url, mode="text")).strip()
-                if len(content) == 0:
-                    failed_count += 1
-                    source_statuses[url] = STATUS_EMPTY
-                    continue
+            evidence, content = self._fetch_source(url, ROLE_PRIMARY)
+            source_evidence.append(evidence)
+            source_statuses[url] = evidence["status"]
+            if content is None:
+                failed_count += 1
+            else:
                 contents.append(content)
                 fetched_urls.append(url)
-                source_statuses[url] = STATUS_FETCHED
-            except Exception as exc:
-                failed_count += 1
-                source_statuses[url] = _classify_fetch_error(exc)
 
         if len(contents) == 0:
             # All primaries unreachable — knowledge-based fallback
@@ -400,6 +504,7 @@ class FactChecker(gl.Contract):
                     "mode": MODE_KNOWLEDGE_BASED,
                     "sources": primary_urls,
                     "source_statuses": source_statuses,
+                    "source_evidence": source_evidence,
                     "raw_result": raw_result if isinstance(raw_result, dict) else None,
                     "failed_count": failed_count,
                 }
@@ -413,20 +518,16 @@ class FactChecker(gl.Contract):
                 if u not in all_corroborating and u not in fetched_urls:
                     all_corroborating.append(u)
 
-        # Fetch corroborating sources (cap at 3 total)
+        # Fetch corroborating sources (cap at NUM_CORROBORATING_SOURCES total)
         for url in all_corroborating[:NUM_CORROBORATING_SOURCES]:
-            try:
-                content = str(gl.nondet.web.render(url, mode="text")).strip()
-                if len(content) == 0:
-                    failed_count += 1
-                    source_statuses[url] = STATUS_EMPTY
-                    continue
+            evidence, content = self._fetch_source(url, ROLE_CORROBORATING)
+            source_evidence.append(evidence)
+            source_statuses[url] = evidence["status"]
+            if content is None:
+                failed_count += 1
+            else:
                 contents.append(content)
                 fetched_urls.append(url)
-                source_statuses[url] = STATUS_FETCHED
-            except Exception as exc:
-                failed_count += 1
-                source_statuses[url] = _classify_fetch_error(exc)
 
         raw_result = self._evaluate_via_llm(
             claim=claim,
@@ -441,10 +542,47 @@ class FactChecker(gl.Contract):
                 "mode": MODE_SOURCE_VERIFIED,
                 "sources": fetched_urls,
                 "source_statuses": source_statuses,
+                "source_evidence": source_evidence,
                 "raw_result": raw_result if isinstance(raw_result, dict) else None,
                 "failed_count": failed_count,
             }
         )
+
+    def _fetch_source(self, url: str, role: str) -> tuple[dict, str | None]:
+        """Fetch one URL and build its SourceEvidence dict.
+
+        Returns (evidence, content) where content is None on failure.
+        """
+        try:
+            content = str(gl.nondet.web.render(url, mode="text")).strip()
+            if len(content) == 0:
+                return self._build_evidence(url, STATUS_EMPTY, role, ""), None
+            return self._build_evidence(url, STATUS_FETCHED, role, content), content
+        except Exception as exc:
+            status = _classify_fetch_error(exc)
+            return self._build_evidence(url, status, role, ""), None
+
+    @staticmethod
+    def _build_evidence(url: str, status: str, role: str, content: str) -> dict:
+        if status == STATUS_FETCHED and content:
+            return {
+                "url": url,
+                "status": status,
+                "role": role,
+                "host": _host(url),
+                "content_length": len(content),
+                "content_hash": _fnv1a64_hex(content),
+                "retrieved_at": int(time.time()),
+            }
+        return {
+            "url": url,
+            "status": status,
+            "role": role,
+            "host": _host(url),
+            "content_length": 0,
+            "content_hash": "",
+            "retrieved_at": 0,
+        }
 
     def _evaluate_via_llm(
         self, claim: str, contents: list, source_urls: list, mode: str
@@ -507,8 +645,14 @@ class FactChecker(gl.Contract):
     def _resolve_outcome(self, parsed, requested_source_urls: list[str]):
         """Deterministic post-processing of the pipeline output.
 
-        Returns (sources, verdict, confidence, explanation, mode, source_status).
-        Guarantees a non-empty explanation in every branch.
+        Returns (sources, verdict, confidence, explanation, mode,
+        source_status, source_details).
+
+        Guarantees a non-empty explanation in every branch and applies the
+        code-enforced confidence caps from §2.7:
+        - KNOWLEDGE_BASED mode → min(confidence, 85)
+        - SOURCE_VERIFIED + strong verdict + <2 independent FETCHED hosts
+          → min(confidence, 70) + independence note
         """
         if not isinstance(parsed, dict):
             return (
@@ -518,6 +662,7 @@ class FactChecker(gl.Contract):
                 PIPELINE_FAILURE_EXPLANATION,
                 MODE_KNOWLEDGE_BASED if len(requested_source_urls) == 0 else MODE_SOURCE_VERIFIED,
                 STATUS_NOT_PROVIDED if len(requested_source_urls) == 0 else STATUS_ERROR,
+                [],
             )
 
         sources = []
@@ -533,6 +678,8 @@ class FactChecker(gl.Contract):
             for key, value in raw_statuses.items():
                 if isinstance(key, str) and value in VALID_STATUSES:
                     statuses[key] = value
+
+        source_details = self._parse_source_evidence(parsed.get("source_evidence"))
 
         mode = parsed.get("mode")
         if mode not in VALID_MODES:
@@ -557,6 +704,7 @@ class FactChecker(gl.Contract):
                 parsed.get("raw_result"),
                 fallback_explanation=KNOWLEDGE_FALLBACK_EXPLANATION,
             )
+            confidence = min(confidence, KNOWLEDGE_CONFIDENCE_CAP)
             for url in requested_source_urls:
                 if url not in sources:
                     sources.insert(0, url)
@@ -567,6 +715,7 @@ class FactChecker(gl.Contract):
                 explanation,
                 MODE_KNOWLEDGE_BASED,
                 primary_status if primary_status != STATUS_NOT_PROVIDED else STATUS_ERROR,
+                source_details,
             )
 
         if parsed.get("status") != "ok":
@@ -577,11 +726,15 @@ class FactChecker(gl.Contract):
                 PIPELINE_FAILURE_EXPLANATION,
                 mode,
                 primary_status,
+                source_details,
             )
 
         verdict, confidence, explanation = self._extract_verdict_fields(
             parsed.get("raw_result")
         )
+
+        if mode == MODE_KNOWLEDGE_BASED:
+            confidence = min(confidence, KNOWLEDGE_CONFIDENCE_CAP)
 
         if requested_source_urls:
             for url in requested_source_urls:
@@ -595,7 +748,64 @@ class FactChecker(gl.Contract):
                 f"fetched and were excluded. {explanation}"
             )
 
-        return sources, verdict, confidence, explanation, mode, primary_status
+        # Independence gate: strong verdicts need ≥ MIN_INDEPENDENT_HOSTS
+        # distinct FETCHED hosts or confidence is code-capped.
+        if (
+            mode == MODE_SOURCE_VERIFIED
+            and verdict in (VERDICT_TRUE, VERDICT_FALSE, VERDICT_MISLEADING)
+            and _fetched_host_count(source_details) < MIN_INDEPENDENT_HOSTS
+        ):
+            confidence = min(confidence, INDEPENDENT_SOURCE_CAP)
+            if explanation and not explanation.rstrip().endswith("."):
+                explanation = explanation.rstrip() + ". " + INDEPENDENT_EVIDENCE_NOTE
+            elif explanation:
+                explanation = explanation + " " + INDEPENDENT_EVIDENCE_NOTE
+            else:
+                explanation = INDEPENDENT_EVIDENCE_NOTE
+
+        return sources, verdict, confidence, explanation, mode, primary_status, source_details
+
+    def _parse_source_evidence(self, raw) -> list:
+        """Validate pipeline source_evidence into SourceEvidence dataclasses."""
+        details = []
+        if not isinstance(raw, list):
+            return details
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if not isinstance(url, str) or not url.startswith("https://"):
+                continue
+            status = item.get("status")
+            if status not in VALID_STATUSES:
+                status = STATUS_ERROR
+            role = item.get("role")
+            if role not in (ROLE_PRIMARY, ROLE_CORROBORATING):
+                role = ROLE_PRIMARY
+            host = item.get("host")
+            if not isinstance(host, str) or not host:
+                host = _host(url)
+            content_length = item.get("content_length", 0)
+            if not isinstance(content_length, int) or content_length < 0:
+                content_length = 0
+            content_hash = item.get("content_hash", "")
+            if not isinstance(content_hash, str):
+                content_hash = ""
+            retrieved_at = item.get("retrieved_at", 0)
+            if not isinstance(retrieved_at, int) or retrieved_at < 0:
+                retrieved_at = 0
+            details.append(
+                SourceEvidence(
+                    url=url,
+                    status=status,
+                    role=role,
+                    host=host,
+                    content_length=content_length,
+                    content_hash=content_hash,
+                    retrieved_at=retrieved_at,
+                )
+            )
+        return details
 
     def _extract_verdict_fields(
         self, raw_result, fallback_explanation: str | None = None
@@ -636,6 +846,19 @@ class FactChecker(gl.Contract):
         return confidence
 
     def _record_to_dict(self, record: FactCheckRecord) -> dict:
+        details = []
+        for d in record.source_details:
+            details.append(
+                {
+                    "url": d.url,
+                    "status": d.status,
+                    "role": d.role,
+                    "host": d.host,
+                    "content_length": d.content_length,
+                    "content_hash": d.content_hash,
+                    "retrieved_at": d.retrieved_at,
+                }
+            )
         return {
             "id": record.id,
             "claim": record.claim,
@@ -648,6 +871,7 @@ class FactChecker(gl.Contract):
             "submitter": record.submitter,
             "verification_mode": record.verification_mode,
             "source_status": record.source_status,
+            "source_details": details,
         }
 
     def _current_timestamp(self) -> int:
@@ -665,6 +889,7 @@ class FactChecker(gl.Contract):
         sources: list,
         mode: str,
         source_status: str,
+        source_details: list | None = None,
     ) -> None:
         record = FactCheckRecord(
             id=check_id,
@@ -678,9 +903,12 @@ class FactChecker(gl.Contract):
             submitter=str(gl.message.sender_address),
             verification_mode=mode,
             source_status=source_status,
+            source_details=[],
         )
         for url in sources:
             record.sources_checked.append(url)
+        for detail in source_details or []:
+            record.source_details.append(detail)
 
         self.checks[check_id] = record
         self.total_checks += 1

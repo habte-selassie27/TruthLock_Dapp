@@ -21,6 +21,20 @@ export const SOURCE_STATUSES = [
 
 export type SourceStatus = (typeof SOURCE_STATUSES)[number];
 
+export const SOURCE_ROLES = ["primary", "corroborating"] as const;
+
+export type SourceRole = (typeof SOURCE_ROLES)[number];
+
+export interface SourceEvidence {
+  url: string;
+  status: SourceStatus;
+  role: SourceRole;
+  host: string;
+  content_length: number;
+  content_hash: string;
+  retrieved_at: number;
+}
+
 export interface FactCheckRecord {
   id: string;
   claim: string;
@@ -32,6 +46,7 @@ export interface FactCheckRecord {
   sources_checked: string[];
   verification_mode: VerificationMode;
   source_status: SourceStatus;
+  source_details: SourceEvidence[];
   timestamp: number;
   tx_hash?: string;
   submitter: string;
@@ -70,6 +85,10 @@ export function isSourceStatus(value: unknown): value is SourceStatus {
   );
 }
 
+export function isSourceRole(value: unknown): value is SourceRole {
+  return typeof value === "string" && (SOURCE_ROLES as readonly string[]).includes(value);
+}
+
 export const SOURCE_STATUS_LABELS: Record<SourceStatus, string> = {
   NOT_PROVIDED: "No source provided",
   FETCHED: "Retrieved",
@@ -100,6 +119,7 @@ export interface GovernanceProposal {
   truthlock_check_id: string;
   truthlock_verdict: Verdict;
   truthlock_confidence: number;
+  truthlock_mode: VerificationMode;
   status: ProposalStatus;
   votes_for: number;
   votes_against: number;
@@ -111,9 +131,12 @@ export interface GovernanceProposal {
 export interface GovernanceStats {
   total_proposals: number;
   member_count: number;
+  admin?: string;
   statuses: Partial<Record<ProposalStatus, number>>;
   truthlock_address: string;
   min_confidence: number;
+  quorum_divisor?: number;
+  supermajority?: string;
 }
 
 export function isProposalStatus(value: unknown): value is ProposalStatus {

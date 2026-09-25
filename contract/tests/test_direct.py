@@ -241,6 +241,8 @@ class TestRequiredSpec:
         check_id = submit(fc)
         record = fc.get_check(check_id)
         assert record["verdict"] == "TRUE"
+        # Independence gate: default mock sources span example.org + nasa.gov
+        # + snopes.com → ≥2 hosts, so no cap.
         assert record["confidence"] == 96
 
     def test_false_verdict(self, fc, llm):
@@ -329,6 +331,9 @@ class TestCoverage:
         assert record["verdict"] == "TRUE"  # evaluation still ran on available sources
         assert record["sources_checked"] == [PRIMARY_URL]
         assert "could not be fetched and were excluded" in record["explanation"]
+        # Only example.org was FETCHED → independence gate caps strong verdicts
+        assert record["confidence"] == 70
+        assert "capped at 70" in record["explanation"]
 
     def test_malformed_eval_retry_then_success(self, fc, llm):
         calls = {"n": 0}
@@ -366,6 +371,7 @@ class TestCoverage:
     def test_confidence_clamped(self, fc, llm):
         set_verdict(llm, "TRUE", 150)
         record = fc.get_check(submit(fc))
+        # Clamped to 100 first; independent hosts → no independence cap
         assert record["confidence"] == 100
 
     def test_recent_checks_cap_at_50_and_default_10(self, fc):
@@ -384,6 +390,39 @@ class TestCoverage:
             "functionally equivalent",
         ) or "TRUE, FALSE, MISLEADING, UNVERIFIABLE" in principle_text
         assert "exactly the same across validator runs" in principle_text
+        assert "source_evidence" in principle_text
+        # Consensus tolerances: confidence spread and fetch/extraction variance
+        # must not by themselves reject an otherwise identical verdict.
+        assert "within 25 points across validator runs" in principle_text
+        assert "differing corroborating URL set alone does not make the verdict inconsistent" in (
+            principle_text
+        )
+        assert "may differ only as described above" in principle_text
+
+    def test_source_verified_prompt_forbids_background_knowledge(self, fc, llm):
+        """§2.4: SOURCE_VERIFIED verdicts must come from evidence blocks only.
+
+        Without this rule validators import outside knowledge and return a
+        different verdict than the leader, which fails equivalence and drops
+        the transaction (MAJORITY_DISAGREE → nothing stored).
+        """
+        captured = {}
+
+        def side_effect(prompt, response_format=None, **kwargs):
+            if "JSON array" in prompt:
+                return json.dumps(CORROBORATING_URLS)
+            captured["prompt"] = prompt
+            return verdict_json("TRUE", 95, "All three sources confirm the claim.")
+
+        llm.side_effect = side_effect
+        submit(fc)
+
+        prompt = captured["prompt"]
+        assert "VERIFICATION MODE: SOURCE_VERIFIED" in prompt
+        assert "Judge ONLY from those evidence blocks" in prompt
+        assert "must not change the verdict" in prompt
+        assert "the verdict MUST be UNVERIFIABLE regardless of" in prompt
+        assert "cite only evidence present in the evidence" in prompt
 
     def test_extracted_urls_filtered_and_capped(self, fc, llm):
         extra_url = "https://extra.example.com/third"
@@ -401,7 +440,9 @@ class TestCoverage:
 
         llm.side_effect = side_effect
         record = fc.get_check(submit(fc))
+        # example.org + extra.example.com + nasa.gov → independent hosts
         assert record["sources_checked"] == [PRIMARY_URL, CORROBORATING_URLS[0], extra_url]
+        assert record["confidence"] == 91
 
     def test_stats_empty_state(self, fc):
         stats = fc.get_stats()
@@ -546,6 +587,139 @@ class TestKnowledgeBasedMode:
         assert record["source_url"] == PRIMARY_URL
         assert record["sources_checked"] == [PRIMARY_URL]
 
+
+# ---------------------------------------------------------------------------
+# Evidence provenance — knowledge cap, independence cap, source_details
+# ---------------------------------------------------------------------------
+
+
+class TestKnowledgeConfidenceCap:
+    def test_knowledge_confidence_capped_in_code(self, fc, llm):
+        """LLM confidence 95 in KNOWLEDGE_BASED mode → stored as 85."""
+        llm.side_effect = lambda prompt, **kw: knowledge_verdict_json("TRUE", 95, "Well known.")
+        check_id = submit_knowledge(fc)
+        record = fc.get_check(check_id)
+        assert record["verification_mode"] == "KNOWLEDGE_BASED"
+        assert record["confidence"] == 85
+
+    def test_knowledge_confidence_at_cap_unchanged(self, fc, llm):
+        llm.side_effect = lambda prompt, **kw: knowledge_verdict_json("TRUE", 85, "ok")
+        record = fc.get_check(submit_knowledge(fc))
+        assert record["confidence"] == 85
+
+    def test_unreachable_fallback_confidence_capped(self, fc, llm, web):
+        """Unreachable primary + LLM confidence 95 → stored 85, KNOWLEDGE_BASED."""
+        web.side_effect = RuntimeError("connection refused")
+        llm.side_effect = lambda prompt, **kw: knowledge_verdict_json("FALSE", 95, "Known false.")
+        record = fc.get_check(submit(fc))
+        assert record["verification_mode"] == "KNOWLEDGE_BASED"
+        assert record["confidence"] == 85
+        assert record["source_status"] == "ERROR"
+
+
+class TestIndependenceGate:
+    def test_same_host_independence_cap(self, fc, llm, web):
+        """All FETCHED sources on one host + strong verdict → confidence capped at 70."""
+        single_host_urls = [
+            "https://blog.example.com/a",
+            "https://blog.example.com/b",
+        ]
+
+        def fetch(url, mode="text"):
+            return f"Content for {url}: detailed article body."
+
+        web.side_effect = fetch
+
+        def prompt_side(effect_prompt, response_format=None, **kwargs):
+            if "JSON array" in effect_prompt:
+                return json.dumps(single_host_urls)
+            return verdict_json("TRUE", 90, "Sources confirm the claim.")
+
+        llm.side_effect = prompt_side
+        check_id = fc.submit_claim(
+            claim="A claim backed only by one publisher network.",
+            source_url="https://blog.example.com/main",
+        )
+        advance_block()
+        record = fc.get_check(check_id)
+        assert record["verification_mode"] == "SOURCE_VERIFIED"
+        assert record["verdict"] == "TRUE"
+        assert record["confidence"] == 70
+        assert "capped at 70" in record["explanation"]
+
+    def test_independent_hosts_no_cap(self, fc, llm):
+        """≥2 distinct FETCHED hosts → confidence above 70 preserved."""
+        set_verdict(llm, "TRUE", 90, "Independent sources agree.")
+        record = fc.get_check(submit(fc))
+        assert record["confidence"] == 90
+        assert "capped at 70" not in record["explanation"]
+
+    def test_unverifiable_exempt_from_independence_cap(self, fc, llm, web):
+        """UNVERIFIABLE is not a strong verdict — no independence cap/note."""
+        web.side_effect = lambda url, mode="text": f"Content from {url}"
+        llm.side_effect = lambda prompt, **kw: (
+            json.dumps(CORROBORATING_URLS)
+            if "JSON array" in prompt
+            else verdict_json("UNVERIFIABLE", 40, "Not enough evidence.")
+        )
+        record = fc.get_check(submit(fc))
+        assert record["verdict"] == "UNVERIFIABLE"
+        assert record["confidence"] == 40
+        assert "capped at 70" not in record["explanation"]
+
+
+class TestSourceDetails:
+    def test_source_details_stored(self, fc, llm, web):
+        """Every successful fetch produces a SourceEvidence entry with metadata."""
+        record = fc.get_check(submit(fc))
+        details = record["source_details"]
+        assert len(details) >= 1
+        primary = details[0]
+        assert primary["url"] == PRIMARY_URL
+        assert primary["status"] == "FETCHED"
+        assert primary["role"] == "primary"
+        assert primary["host"] == "example.org"
+        assert primary["content_length"] > 0
+        assert len(primary["content_hash"]) == 16
+        # Retrieved during the pipeline (before submit's advance_block)
+        assert primary["retrieved_at"] == _mock_time.return_value - 12
+        # Corroborating sources recorded with role
+        roles = {d["role"] for d in details}
+        assert "corroborating" in roles
+
+    def test_source_details_failure_recorded(self, fc, llm, web):
+        """Failed fetch → SourceEvidence with failure status, zeroed hash fields."""
+        web.side_effect = RuntimeError("403 Forbidden")
+        record = fc.get_check(submit(fc))
+        details = record["source_details"]
+        assert len(details) >= 1
+        failed = details[0]
+        assert failed["url"] == PRIMARY_URL
+        assert failed["status"] == "BLOCKED"
+        assert failed["content_length"] == 0
+        assert failed["content_hash"] == ""
+        assert failed["retrieved_at"] == 0
+
+    def test_source_details_empty_for_knowledge_mode(self, fc, llm):
+        llm.side_effect = lambda prompt, **kw: knowledge_verdict_json("TRUE", 70, "ok")
+        record = fc.get_check(submit_knowledge(fc))
+        assert record["source_details"] == []
+
+    def test_source_details_partial_failure(self, fc, llm, web):
+        """Primary succeeds, corroborating fails → both recorded with correct statuses."""
+        def fetch(url, mode="text"):
+            if url == PRIMARY_URL:
+                return PAGE_CONTENT
+            raise RuntimeError("timeout")
+
+        web.side_effect = fetch
+        record = fc.get_check(submit(fc))
+        details = {d["url"]: d for d in record["source_details"]}
+        assert details[PRIMARY_URL]["status"] == "FETCHED"
+        assert details[PRIMARY_URL]["content_hash"] != ""
+        failed = [d for d in record["source_details"] if d["status"] != "FETCHED"]
+        assert len(failed) >= 1
+        assert all(d["content_hash"] == "" for d in failed)
 
 # ---------------------------------------------------------------------------
 # Multi-source tests

@@ -5,7 +5,7 @@
   "network": "studionet",
   "rpc": "${GENLAYER_RPC}",
   "deploy": {
-    "command": "genlayer deploy contract/fact_checker.py --network studio",
+    "command": "genlayer deploy --contract contract/fact_checker.py",
     "constructor_args": []
   },
   "tests": {
